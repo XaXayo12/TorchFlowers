@@ -1,0 +1,31 @@
+[package]
+name = "bedrock-engine"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1.0"
+aes-gcm = "0.10"
+async-trait = "0.1"
+axum = { version = "0.8", features = ["macros", "json"] }
+base64 = "0.22"
+bedrock = { git = "https://github.com/bedrock-crustaceans/bedrock-rs.git", rev = "c44d5f51a9036a04cc8661f4be02e2cff40c6ab1", default-features = false, features = ["auth", "auth-async", "network", "protocol", "protocol-v975", "protocol-unknown", "protocol-packet-dyn", "protocol-packet-meta"] }
+chrono = { version = "0.4", features = ["serde"] }
+dotenvy = "0.15"
+jsonwebtoken = { version = "10.3", features = ["rust_crypto"] }
+p384 = { version = "0.14.0-rc.8", features = ["ecdsa", "pkcs8", "pem"] }
+rand = "0.9"
+rak-rs = { version = "0.3.3", default-features = false, features = ["async_tokio", "mcpe"] }
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls", "http2", "charset"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.11.0"
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+thiserror = "2.0"
+tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "signal", "sync", "time", "net"] }
+tower-http = { version = "0.6", features = ["cors", "trace"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+urlencoding = "2.1"
+uuid = { version = "1.11", features = ["v4", "serde"] }
