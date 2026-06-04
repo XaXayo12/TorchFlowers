@@ -46,7 +46,7 @@
 /// - [`ReliableOrd`]
 /// - [`ReliableSeq`]
 ///
-/// [RakNet Reliabilty]: https://github.com/facebookarchive/RakNet/blob/1a169895a900c9fc4841c556e16514182b75faf8/Source/PacketPriority.h#L46-L85
+/// Describes the packet delivery guarantees exposed by RakNet.
 /// [`Frame`]: crate::protocol::frame::Frame
 /// [`Unreliable`]: crate::protocol::reliability::Reliability::Unreliable
 /// [`UnreliableSeq`]: crate::protocol::reliability::Reliability::UnreliableSeq

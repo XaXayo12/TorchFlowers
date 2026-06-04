@@ -16,7 +16,6 @@ version = "0.3.3"
 authors = ["John Bergman <olybear9@gmail.com>"]
 description = "A fully functional RakNet implementation in pure rust, asynchronously driven."
 license = "Apache-2.0"
-repository = "https://github.com/NetrexMC/RakNet"
 
 [dependencies.async-std]
 version = "1.12.0"

@@ -29,7 +29,7 @@ pub(crate) mod ack;
 /// This is an internal module that contains the logic to implement the frame system within
 /// RakNet. This is also called the "Datagram" or "Encapsulated" packet in different implementations.
 ///
-/// You can find the original implementation from RakNet [here](https://github.com/facebookarchive/RakNet/blob/1a169895a900c9fc4841c556e16514182b75faf8/Source/ReliabilityLayer.cpp#L110-L231)
+/// Sliding ACK receive window used by the RakNet reliability layer.
 // pub(crate) mod frame;
 pub mod frame;
 /// This is the constant added to all offline packets to identify them as RakNet packets.

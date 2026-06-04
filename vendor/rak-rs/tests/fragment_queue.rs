@@ -6,7 +6,7 @@ use rak_rs::{
     },
 };
 
-// Fixes issue: https://github.com/NetrexMC/RakNet/issues/55
+// Regression coverage for malformed fragment queue bounds.
 #[test]
 fn test_proper_reordering() {
     let mut queue = FragmentQueue::new();
