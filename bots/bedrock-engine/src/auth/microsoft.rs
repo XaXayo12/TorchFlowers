@@ -3,7 +3,7 @@ use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    config::Config,
+    config::{Config, MicrosoftAuthFlow},
     db::Database,
     diagnostics::Diagnostics,
     error::{EngineError, EngineResult},
@@ -16,6 +16,7 @@ pub struct MicrosoftAuth {
     db: Database,
     diagnostics: Diagnostics,
     client_id: String,
+    auth_flow: MicrosoftAuthFlow,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -57,6 +58,7 @@ impl MicrosoftAuth {
             diagnostics: Diagnostics::new(db.clone()),
             db,
             client_id: config.microsoft_client_id.clone(),
+            auth_flow: config.microsoft_auth_flow.clone(),
         }
     }
 
@@ -68,11 +70,8 @@ impl MicrosoftAuth {
                 &self.client,
                 Some(&account_id),
                 "microsoft_device_code",
-                "https://login.microsoftonline.com/consumers/oauth2/v2.0/devicecode",
-                vec![
-                    ("client_id", self.client_id.clone()),
-                    ("scope", "XboxLive.signin offline_access".to_string()),
-                ],
+                self.auth_flow.device_code_url(),
+                self.device_code_form(),
             )
             .await?;
         let expires_at = Utc::now() + Duration::seconds(device.expires_in.max(60));
@@ -129,15 +128,8 @@ impl MicrosoftAuth {
                 &self.client,
                 Some(&session.account_id),
                 "microsoft_device_token",
-                "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
-                vec![
-                    (
-                        "grant_type",
-                        "urn:ietf:params:oauth:grant-type:device_code".to_string(),
-                    ),
-                    ("client_id", self.client_id.clone()),
-                    ("device_code", device_code),
-                ],
+                &self.poll_token_url(),
+                self.poll_token_form(device_code),
             )
             .await?;
         match poll {
@@ -175,6 +167,41 @@ impl MicrosoftAuth {
                 })
             }
             TokenPollResponse::Success(tokens) => Ok(Some(tokens)),
+        }
+    }
+
+    fn device_code_form(&self) -> Vec<(&'static str, String)> {
+        let mut form = vec![
+            ("client_id", self.client_id.clone()),
+            ("scope", self.auth_flow.scope().to_string()),
+        ];
+        if self.auth_flow == MicrosoftAuthFlow::Live {
+            form.push(("response_type", "device_code".to_string()));
+        }
+        form
+    }
+
+    fn poll_token_form(&self, device_code: String) -> Vec<(&'static str, String)> {
+        vec![
+            (
+                "grant_type",
+                "urn:ietf:params:oauth:grant-type:device_code".to_string(),
+            ),
+            ("client_id", self.client_id.clone()),
+            ("device_code", device_code),
+        ]
+    }
+
+    fn poll_token_url(&self) -> String {
+        match self.auth_flow {
+            MicrosoftAuthFlow::Live => {
+                format!(
+                    "{}?client_id={}",
+                    self.auth_flow.token_url(),
+                    self.client_id
+                )
+            }
+            MicrosoftAuthFlow::Msal => self.auth_flow.token_url().to_string(),
         }
     }
 }

@@ -1,21 +1,18 @@
-# RustRock Bedrock Discord Bot
+# RustRock Bedrock Engine
 
-RustRock is a production-oriented Minecraft Bedrock bot controller. Operators manage accounts, entitlement provisioning, servers, bot sessions, diagnostics, and real-server validation from Discord slash commands.
-
-There is no web dashboard in this build. The Node.js TypeScript service is a Discord bot command surface, and the Rust engine remains the source of truth for authentication, persistence, entitlement provisioning, and Bedrock networking.
+RustRock is a Rust Minecraft Bedrock client engine for authenticated real-server validation and bot-session experiments. The repository is intentionally Rust-only: authentication, entitlement provisioning, Bedrock networking, persistence, diagnostics, and validation all live in the engine.
 
 ## Workspace
 
-- Rust engine: `bots/bedrock-engine`
-- Discord command service: `server`
-- Shared TypeScript contracts: `shared`
+- Engine crate: `bots/bedrock-engine`
 - SQLite schema: `database/migrations/0001_initial.sql`
+- Local RakNet patch: `vendor/rak-rs`
 
-## Rust Engine
+## Authentication
 
-The engine implements the complete Bedrock entitlement and authentication path:
+The engine implements the full Bedrock account path:
 
-1. Microsoft device-code OAuth
+1. Microsoft device-code OAuth using the Live flow by default
 2. Xbox Live authentication
 3. Standard XSTS authentication
 4. PlayFab XSTS authentication with `RP=http://playfab.xboxlive.com/`
@@ -24,62 +21,74 @@ The engine implements the complete Bedrock entitlement and authentication path:
 7. Legacy Bedrock authentication against `https://multiplayer.minecraft.net/authentication`
 8. Bedrock JWT chain generation
 
-`bedrock-rs` is pinned and used for packet definitions, protocol versions, serialization, compression, and codec surfaces where available. `ismaileke/bedrock-client` was inspected for client-loop and packet-coverage ideas, but it is not used as a dependency because it brings a separate RakNet/protocol implementation and its own authentication path. Any missing production behavior remains behind local RustRock adapters.
+Tokens and provisioning state are persisted in SQLite. Diagnostics record request status, response metadata, and authentication-stage failures.
 
-## Discord Commands
+## Bedrock Client Capabilities
 
-Register and run the Discord bot with:
+The current engine covers the critical client pipeline used by modern Bedrock servers:
 
-```powershell
-npm run dev --workspace server
-```
+- RakNet handshake, ACK/NACK handling, fragmentation, and reassembly
+- RequestNetworkSettings and ZLib negotiation
+- Login packet generation, compression, encryption handshake, and encrypted batch decoding
+- Resource pack acknowledgement and client cache status
+- StartGame, player spawn, keepalive, chat, inventory observation, movement, and disconnect handling
+- DonutSMP-compatible NetworkStackLatency response encoding
+- Server-confirmed block breaking evidence through UpdateBlock observation
+- Guarded block placing that only runs after a normal placeable item is confirmed in inventory
 
-Available command group:
-
-- `/rustrock status`
-- `/rustrock import`
-- `/rustrock poll-auth`
-- `/rustrock provision`
-- `/rustrock accounts`
-- `/rustrock add-server`
-- `/rustrock servers`
-- `/rustrock create-bot`
-- `/rustrock bots`
-- `/rustrock start-bot`
-- `/rustrock stop-bot`
-- `/rustrock validate`
-- `/rustrock logs`
+Server menu, teleport, region-selector, and UI-tool items are rejected as placeable inventory even when their raw item id resembles a block. If a server does not provide a normal collectible drop, the validator reports block-breaking evidence separately and fails placement explicitly instead of producing a false positive.
 
 ## Configuration
 
-Copy `.env.example` to `.env` and set:
-
-- `MICROSOFT_CLIENT_ID`
-- `TOKEN_ENCRYPTION_SECRET`
-- `DATABASE_URL`
-- `RUST_ENGINE_BIND`
-- `RUST_ENGINE_URL`
-- `DISCORD_BOT_TOKEN`
-- `DISCORD_CLIENT_ID`
-- `DISCORD_GUILD_ID` for fast guild command registration during development
-- `DISCORD_ALLOWED_ROLE_IDS` or `DISCORD_ADMIN_USER_IDS` for operator access
-
-## Live Validation
-
-The Discord command `/rustrock validate` and the Rust CLI both exercise the real-server probes for login, spawn, keepalive, chat, forms, inventory transactions, movement, and disconnect handling.
-
-CLI validation:
+Copy `.env.example` to `.env` and set values as needed:
 
 ```powershell
+MICROSOFT_AUTH_FLOW=live
+MICROSOFT_CLIENT_ID=
+TOKEN_ENCRYPTION_SECRET=replace-with-32-plus-random-characters
+DATABASE_URL=sqlite://database/rustrock.sqlite
+RUST_ENGINE_BIND=127.0.0.1:9080
+LOG_LEVEL=info
+BEDROCK_VALIDATE_ACCOUNT_ID=<account-id>
+BEDROCK_VALIDATE_SERVER_HOST=<server-host>
+BEDROCK_VALIDATE_SERVER_PORT=19132
+BEDROCK_VALIDATE_DURATION_SECONDS=300
+```
+
+`MICROSOFT_CLIENT_ID` is optional in Live mode. `TOKEN_ENCRYPTION_SECRET` should be a high-entropy local secret used to encrypt stored refresh tokens.
+
+## Run
+
+Start the local engine API:
+
+```powershell
+cargo run -p bedrock-engine
+```
+
+Run real-server validation:
+
+```powershell
+$env:BEDROCK_VALIDATE_ACCOUNT_ID="<account-id>"
+$env:BEDROCK_VALIDATE_SERVER_HOST="<server-host>"
+$env:BEDROCK_VALIDATE_SERVER_PORT="19132"
+$env:BEDROCK_VALIDATE_DURATION_SECONDS="90"
 cargo run -p bedrock-engine -- validate-real-server
 ```
 
-Set `BEDROCK_VALIDATE_ACCOUNT_ID`, `BEDROCK_VALIDATE_SERVER_HOST`, and `BEDROCK_VALIDATE_SERVER_PORT` before running the CLI.
+Expected successful gameplay output includes:
+
+- `remained_connected=true`
+- `disconnect_reason=null`
+- `block_breaking=true`
+- `block_placing=true`
+- `gameplay_actions=true`
+- `missing_capabilities=[]`
+
+If block placing fails, inspect `[GAMEPLAY_PICKUP]` and `[GAMEPLAY_INVENTORY]` lines. Normal failures distinguish missing drops from rejected server UI items.
 
 ## Verification
 
 ```powershell
 cargo test -p bedrock-engine
-npm run build
-npm run test
+cargo build -p bedrock-engine
 ```

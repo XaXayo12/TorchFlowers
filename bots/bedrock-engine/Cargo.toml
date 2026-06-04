@@ -10,11 +10,14 @@ aes-gcm = "0.10"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["macros", "json"] }
 base64 = "0.22"
-bedrock = { git = "https://github.com/bedrock-crustaceans/bedrock-rs.git", rev = "c44d5f51a9036a04cc8661f4be02e2cff40c6ab1", default-features = false, features = ["auth", "auth-async", "network", "protocol", "protocol-v975", "protocol-unknown", "protocol-packet-dyn", "protocol-packet-meta"] }
+bedrock = { git = "https://github.com/bedrock-crustaceans/bedrock-rs.git", rev = "c44d5f51a9036a04cc8661f4be02e2cff40c6ab1", default-features = false, features = ["auth", "auth-async", "network", "protocol", "protocol-v898", "protocol-v944", "protocol-v975", "protocol-unknown", "protocol-packet-dyn", "protocol-packet-meta"] }
+bedrock_protocol_core = { git = "https://github.com/bedrock-crustaceans/bedrock-rs.git", rev = "c44d5f51a9036a04cc8661f4be02e2cff40c6ab1" }
+binary-util = "0.3.4"
 chrono = { version = "0.4", features = ["serde"] }
 dotenvy = "0.15"
 jsonwebtoken = { version = "10.3", features = ["rust_crypto"] }
 p384 = { version = "0.14.0-rc.8", features = ["ecdsa", "pkcs8", "pem"] }
+p256 = { version = "0.13.2", features = ["ecdsa"] }
 rand = "0.9"
 rak-rs = { version = "0.3.3", default-features = false, features = ["async_tokio", "mcpe"] }
 reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls", "http2", "charset"] }

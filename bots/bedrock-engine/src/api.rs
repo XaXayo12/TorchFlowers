@@ -19,7 +19,7 @@ use crate::{
     config::Config,
     db::Database,
     error::EngineResult,
-    models::{Account, Bot, CapabilityStatus, DeviceAuthSession, LogEntry, Server},
+    models::{Account, Bot, CapabilityStatus, DeviceAuthSession, Entitlement, LogEntry, Server},
 };
 
 #[derive(Clone)]
@@ -42,6 +42,7 @@ pub async fn serve(config: Config, db: Database, bind: SocketAddr) -> anyhow::Re
     let app = Router::new()
         .route("/health", get(health))
         .route("/api/accounts", get(list_accounts).post(import_account))
+        .route("/api/entitlements", get(list_entitlements))
         .route(
             "/api/accounts/{account_id}/provision",
             post(provision_account),
@@ -71,6 +72,10 @@ async fn health() -> Json<serde_json::Value> {
 
 async fn list_accounts(State(state): State<AppState>) -> EngineResult<Json<Vec<Account>>> {
     Ok(Json(state.db.list_accounts().await?))
+}
+
+async fn list_entitlements(State(state): State<AppState>) -> EngineResult<Json<Vec<Entitlement>>> {
+    Ok(Json(state.db.list_entitlements().await?))
 }
 
 #[derive(Debug, Deserialize)]
@@ -226,6 +231,7 @@ struct ValidateRealServerRequest {
     account_id: String,
     host: String,
     port: Option<u16>,
+    duration_seconds: Option<u64>,
 }
 
 async fn validate_real_server(
@@ -235,7 +241,12 @@ async fn validate_real_server(
     Ok(Json(
         state
             .bots
-            .validate_once(&input.account_id, &input.host, input.port.unwrap_or(19132))
+            .validate_once_for(
+                &input.account_id,
+                &input.host,
+                input.port.unwrap_or(19132),
+                std::time::Duration::from_secs(input.duration_seconds.unwrap_or(300).clamp(5, 900)),
+            )
             .await?,
     ))
 }

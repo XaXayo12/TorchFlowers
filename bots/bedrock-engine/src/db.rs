@@ -9,8 +9,15 @@ use uuid::Uuid;
 
 use crate::{
     error::{EngineError, EngineResult},
-    models::{Account, Bot, DeviceAuthSession, LogEntry, Server},
+    models::{Account, Bot, DeviceAuthSession, Entitlement, LogEntry, Server},
 };
+
+#[derive(Debug, Clone)]
+pub struct EntitlementRetryState {
+    pub retry_count: i64,
+    pub next_retry_at: Option<String>,
+    pub last_error: Option<String>,
+}
 
 #[derive(Clone)]
 pub struct Database {
@@ -52,6 +59,25 @@ impl Database {
     }
 
     pub async fn upsert_account_email(&self, email: &str) -> EngineResult<String> {
+        if let Some(row) = sqlx::query(
+            "SELECT id FROM accounts
+             WHERE lower(email) = lower(?1)
+             ORDER BY
+               CASE microsoft_status
+                 WHEN 'authenticated' THEN 0
+                 WHEN 'device_code_pending' THEN 1
+                 ELSE 2
+               END,
+               created_at DESC
+             LIMIT 1",
+        )
+        .bind(email)
+        .fetch_optional(&self.pool)
+        .await?
+        {
+            return Ok(row.try_get("id")?);
+        }
+
         let id = Uuid::new_v4().to_string();
         sqlx::query(
             "INSERT INTO accounts (id, email, microsoft_status) VALUES (?1, ?2, 'device_code_pending')",
@@ -258,9 +284,9 @@ impl Database {
         last_error: Option<&str>,
     ) -> EngineResult<()> {
         sqlx::query(
-            "INSERT INTO entitlements (account_id, has_entitlement, playfab_id, session_ticket_ciphertext, minecraft_token_ciphertext, provisioning_status, last_request_id, last_error)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-             ON CONFLICT(account_id) DO UPDATE SET has_entitlement=excluded.has_entitlement, playfab_id=excluded.playfab_id, session_ticket_ciphertext=COALESCE(excluded.session_ticket_ciphertext, entitlements.session_ticket_ciphertext), minecraft_token_ciphertext=COALESCE(excluded.minecraft_token_ciphertext, entitlements.minecraft_token_ciphertext), provisioning_status=excluded.provisioning_status, last_request_id=excluded.last_request_id, last_error=excluded.last_error, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+            "INSERT INTO entitlements (account_id, has_entitlement, playfab_id, session_ticket_ciphertext, minecraft_token_ciphertext, provisioning_status, retry_count, next_retry_at, last_request_id, last_error)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, NULL, ?7, ?8)
+             ON CONFLICT(account_id) DO UPDATE SET has_entitlement=excluded.has_entitlement, playfab_id=excluded.playfab_id, session_ticket_ciphertext=COALESCE(excluded.session_ticket_ciphertext, entitlements.session_ticket_ciphertext), minecraft_token_ciphertext=COALESCE(excluded.minecraft_token_ciphertext, entitlements.minecraft_token_ciphertext), provisioning_status=excluded.provisioning_status, retry_count=0, next_retry_at=NULL, last_request_id=excluded.last_request_id, last_error=excluded.last_error, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
         )
         .bind(account_id)
         .bind(if has_entitlement { 1 } else { 0 })
@@ -273,6 +299,102 @@ impl Database {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    pub async fn begin_entitlement_provisioning(&self, account_id: &str) -> EngineResult<()> {
+        sqlx::query(
+            "INSERT INTO entitlements (account_id, provisioning_status, next_retry_at, last_error)
+             VALUES (?1, 'in_progress', NULL, NULL)
+             ON CONFLICT(account_id) DO UPDATE SET provisioning_status='in_progress', next_retry_at=NULL, last_error=NULL, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+        )
+        .bind(account_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn record_entitlement_provisioning_failure(
+        &self,
+        account_id: &str,
+        last_error: &str,
+    ) -> EngineResult<EntitlementRetryState> {
+        let current = sqlx::query("SELECT retry_count FROM entitlements WHERE account_id=?1")
+            .bind(account_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        let current_retry_count = match current {
+            Some(row) => row.try_get::<i64, _>("retry_count")?,
+            None => 0,
+        };
+        let retry_count = current_retry_count + 1;
+        let backoff_seconds = provisioning_backoff_seconds(retry_count);
+        let next_retry_at =
+            sqlx::query_scalar::<_, String>("SELECT strftime('%Y-%m-%dT%H:%M:%fZ', 'now', ?1)")
+                .bind(format!("+{backoff_seconds} seconds"))
+                .fetch_one(&self.pool)
+                .await?;
+        sqlx::query(
+            "INSERT INTO entitlements (account_id, provisioning_status, retry_count, next_retry_at, last_error)
+             VALUES (?1, 'failed', ?2, ?3, ?4)
+             ON CONFLICT(account_id) DO UPDATE SET provisioning_status='failed', retry_count=?2, next_retry_at=?3, last_error=?4, updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+        )
+        .bind(account_id)
+        .bind(retry_count)
+        .bind(&next_retry_at)
+        .bind(last_error)
+        .execute(&self.pool)
+        .await?;
+        Ok(EntitlementRetryState {
+            retry_count,
+            next_retry_at: Some(next_retry_at),
+            last_error: Some(last_error.to_string()),
+        })
+    }
+
+    pub async fn entitlement_retry_state(
+        &self,
+        account_id: &str,
+    ) -> EngineResult<EntitlementRetryState> {
+        let row = sqlx::query(
+            "SELECT retry_count,next_retry_at,last_error FROM entitlements WHERE account_id=?1",
+        )
+        .bind(account_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| EngineError::NotFound(format!("entitlement {account_id}")))?;
+        Ok(EntitlementRetryState {
+            retry_count: row.try_get("retry_count")?,
+            next_retry_at: row.try_get("next_retry_at")?,
+            last_error: row.try_get("last_error")?,
+        })
+    }
+
+    pub async fn list_entitlements(&self) -> EngineResult<Vec<Entitlement>> {
+        let rows = sqlx::query(
+            "SELECT e.account_id,a.email AS account_email,e.has_entitlement,e.playfab_id,e.provisioning_status,e.retry_count,e.next_retry_at,e.last_request_id,e.last_error,e.created_at,e.updated_at
+             FROM entitlements e
+             JOIN accounts a ON a.id=e.account_id
+             ORDER BY e.updated_at DESC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(|row| {
+                Ok(Entitlement {
+                    account_id: row.try_get("account_id")?,
+                    account_email: row.try_get("account_email")?,
+                    has_entitlement: row.try_get::<i64, _>("has_entitlement")? == 1,
+                    playfab_id: row.try_get("playfab_id")?,
+                    provisioning_status: row.try_get("provisioning_status")?,
+                    retry_count: row.try_get("retry_count")?,
+                    next_retry_at: row.try_get("next_retry_at")?,
+                    last_request_id: row.try_get("last_request_id")?,
+                    last_error: row.try_get("last_error")?,
+                    created_at: row.try_get("created_at")?,
+                    updated_at: row.try_get("updated_at")?,
+                })
+            })
+            .collect()
     }
 
     pub async fn create_server(&self, name: &str, host: &str, port: i64) -> EngineResult<String> {
@@ -404,6 +526,50 @@ impl Database {
         Ok(())
     }
 
+    pub async fn mark_bot_joined(&self, bot_id: &str) -> EngineResult<()> {
+        sqlx::query(
+            "UPDATE bots SET status='connected', last_error=NULL, last_join_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id=?1",
+        )
+        .bind(bot_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn mark_bot_left(
+        &self,
+        bot_id: &str,
+        status: &str,
+        last_error: Option<&str>,
+    ) -> EngineResult<()> {
+        sqlx::query(
+            "UPDATE bots SET status=?1, last_error=?2, last_leave_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id=?3",
+        )
+        .bind(status)
+        .bind(last_error)
+        .bind(bot_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    pub async fn update_bot_runtime_state(
+        &self,
+        bot_id: &str,
+        current_position: Option<&str>,
+        inventory_json: Option<&serde_json::Value>,
+    ) -> EngineResult<()> {
+        sqlx::query(
+            "UPDATE bots SET current_position=COALESCE(?1, current_position), inventory_json=COALESCE(?2, inventory_json), updated_at=strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id=?3",
+        )
+        .bind(current_position)
+        .bind(inventory_json.map(serde_json::Value::to_string))
+        .bind(bot_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     pub async fn update_bot_capabilities(
         &self,
         bot_id: &str,
@@ -482,6 +648,11 @@ fn sqlite_file_path(database_url: &str) -> Option<&str> {
     } else {
         Some(path)
     }
+}
+
+fn provisioning_backoff_seconds(retry_count: i64) -> i64 {
+    let exponent = retry_count.saturating_sub(1).min(7) as u32;
+    (30_i64.saturating_mul(2_i64.saturating_pow(exponent))).min(3600)
 }
 
 pub struct NewLogEntry<'a> {

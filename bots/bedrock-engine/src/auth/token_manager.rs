@@ -19,6 +19,7 @@ pub struct TokenManager {
     db: Database,
     client: reqwest::Client,
     client_id: String,
+    auth_flow: crate::config::MicrosoftAuthFlow,
     cipher: Aes256Gcm,
 }
 
@@ -39,6 +40,7 @@ impl TokenManager {
             db,
             client: reqwest::Client::new(),
             client_id: config.microsoft_client_id.clone(),
+            auth_flow: config.microsoft_auth_flow.clone(),
             cipher,
         }
     }
@@ -140,11 +142,11 @@ impl TokenManager {
             ("client_id", self.client_id.clone()),
             ("grant_type", "refresh_token".to_string()),
             ("refresh_token", refresh_token.to_string()),
-            ("scope", "XboxLive.signin offline_access".to_string()),
+            ("scope", self.auth_flow.scope().to_string()),
         ];
         let response = self
             .client
-            .post("https://login.microsoftonline.com/consumers/oauth2/v2.0/token")
+            .post(self.auth_flow.token_url())
             .header("Content-Type", "application/x-www-form-urlencoded")
             .body(encode_form(&form))
             .send()

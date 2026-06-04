@@ -20,6 +20,21 @@ pub struct Account {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Entitlement {
+    pub account_id: String,
+    pub account_email: String,
+    pub has_entitlement: bool,
+    pub playfab_id: Option<String>,
+    pub provisioning_status: String,
+    pub retry_count: i64,
+    pub next_retry_at: Option<String>,
+    pub last_request_id: Option<String>,
+    pub last_error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Server {
     pub id: String,
     pub name: String,
@@ -64,15 +79,25 @@ pub struct LogEntry {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct CapabilityStatus {
+    pub success: bool,
     pub login: bool,
     pub spawn: bool,
+    pub player_spawn: bool,
+    pub remained_connected: bool,
     pub keepalive: bool,
     pub chat: bool,
     pub forms: bool,
     pub inventory_transactions: bool,
     pub movement: bool,
+    pub block_breaking: bool,
+    pub block_placing: bool,
+    pub gameplay_actions: bool,
     pub disconnect_handling: bool,
+    pub requested_duration_seconds: u64,
+    pub connected_duration_seconds: u64,
+    pub disconnect_reason: Option<String>,
     pub missing_capabilities: Vec<String>,
+    pub optional_capabilities_missing: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

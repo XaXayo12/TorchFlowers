@@ -92,10 +92,94 @@ impl Diagnostics {
         if !status.is_success() {
             return Err(EngineError::Auth {
                 step,
-                message: response_body,
+                message: format!(
+                    "status={}; body={}",
+                    status.as_u16(),
+                    preview(&response_body)
+                ),
             });
         }
-        Ok((serde_json::from_str(&response_body)?, request_id, status))
+        let parsed = serde_json::from_str(&response_body).map_err(|err| EngineError::Auth {
+            step,
+            message: format!(
+                "response was not valid JSON: {err}; status={}; body={}",
+                status.as_u16(),
+                preview(&response_body)
+            ),
+        })?;
+        if !status.is_success() {
+            return Err(EngineError::Auth {
+                step,
+                message: format!(
+                    "status={}; body={}",
+                    status.as_u16(),
+                    preview(&response_body)
+                ),
+            });
+        }
+        Ok((parsed, request_id, status))
+    }
+
+    pub async fn request_json_text<T: DeserializeOwned>(
+        &self,
+        client: &reqwest::Client,
+        account_id: Option<&str>,
+        step: &'static str,
+        method: Method,
+        url: &str,
+        headers: Vec<(&str, String)>,
+        body_text: String,
+    ) -> EngineResult<(T, Option<String>, StatusCode)> {
+        let mut request = client.request(method.clone(), url);
+        for (name, value) in &headers {
+            request = request.header(*name, value);
+        }
+        let redacted_body_text = redact_json_string(&body_text);
+        let response = request.body(body_text).send().await?;
+        let status = response.status();
+        let request_id = request_id(response.headers());
+        let response_body = response.text().await?;
+        let redacted_response_body = redact_json_string(&response_body);
+        self.db
+            .log(NewLogEntry {
+                account_id,
+                bot_id: None,
+                level: if status.is_success() { "info" } else { "error" },
+                category: "auth_http",
+                step: Some(step),
+                request_id: request_id.as_deref(),
+                method: Some(method.as_str()),
+                url: Some(url),
+                status_code: Some(status.as_u16() as i64),
+                request_body: Some(&redacted_body_text),
+                response_body: Some(&redacted_response_body),
+                message: if status.is_success() {
+                    "authentication HTTP step succeeded"
+                } else {
+                    "authentication HTTP step failed"
+                },
+                metadata_json: Some("{}"),
+            })
+            .await?;
+        if !status.is_success() {
+            return Err(EngineError::Auth {
+                step,
+                message: format!(
+                    "status={}; body={}",
+                    status.as_u16(),
+                    preview(&response_body)
+                ),
+            });
+        }
+        let parsed = serde_json::from_str(&response_body).map_err(|err| EngineError::Auth {
+            step,
+            message: format!(
+                "response was not valid JSON: {err}; status={}; body={}",
+                status.as_u16(),
+                preview(&response_body)
+            ),
+        })?;
+        Ok((parsed, request_id, status))
     }
 
     pub async fn request_form_json<T: DeserializeOwned>(
@@ -143,7 +227,15 @@ impl Diagnostics {
                 metadata_json: Some("{}"),
             })
             .await?;
-        Ok((serde_json::from_str(&response_body)?, request_id, status))
+        let parsed = serde_json::from_str(&response_body).map_err(|err| EngineError::Auth {
+            step,
+            message: format!(
+                "response was not valid JSON: {err}; status={}; body={}",
+                status.as_u16(),
+                preview(&response_body)
+            ),
+        })?;
+        Ok((parsed, request_id, status))
     }
 }
 
@@ -165,6 +257,15 @@ fn redact_json_string(raw: &str) -> String {
         .unwrap_or_else(|_| raw.chars().take(16_384).collect())
 }
 
+fn preview(raw: &str) -> String {
+    let value: String = raw.chars().take(512).collect();
+    if value.is_empty() {
+        "<empty>".to_string()
+    } else {
+        value
+    }
+}
+
 fn redact_value(value: Value) -> Value {
     match value {
         Value::Object(mut map) => {
@@ -177,8 +278,10 @@ fn redact_value(value: Value) -> Value {
                 "XboxToken",
                 "RpsTicket",
                 "Authorization",
+                "authorizationHeader",
                 "identity",
                 "chain",
+                "signedToken",
             ] {
                 if map.contains_key(key) {
                     map.insert(key.to_string(), Value::String("<redacted>".to_string()));

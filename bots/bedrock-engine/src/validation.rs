@@ -25,14 +25,27 @@ impl RealServerValidation {
             .ok()
             .and_then(|v| v.parse::<u16>().ok())
             .unwrap_or(19132);
+        let duration = std::env::var("BEDROCK_VALIDATE_DURATION_SECONDS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .unwrap_or(300)
+            .clamp(5, 900);
         let provisioned = EntitlementProvisioner::new(&self.config, self.db.clone())
             .provision(&account_id)
             .await?;
         let status = BedrockBotSession::new(self.db.clone())
-            .validate_real_server(&account_id, None, &host, port, &provisioned, true)
+            .validate_real_server_for(
+                &account_id,
+                None,
+                &host,
+                port,
+                &provisioned,
+                true,
+                std::time::Duration::from_secs(duration),
+            )
             .await?;
         println!("{}", serde_json::to_string_pretty(&status)?);
-        if !status.missing_capabilities.is_empty() {
+        if !status.success {
             return Err(EngineError::Bedrock(format!(
                 "missing validation capabilities: {:?}",
                 status.missing_capabilities

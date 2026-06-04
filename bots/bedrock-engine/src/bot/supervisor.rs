@@ -62,8 +62,7 @@ impl BotSupervisor {
                         &serde_json::to_value(&capabilities).map_err(EngineError::Json)?,
                     )
                     .await?;
-                    db.update_bot_status(&bot_id_string, "connected", None)
-                        .await?;
+                    db.mark_bot_joined(&bot_id_string).await?;
                     diagnostics
                         .log_event(
                             Some(&bot.account_id),
@@ -75,6 +74,22 @@ impl BotSupervisor {
                             serde_json::to_value(&capabilities).map_err(EngineError::Json)?,
                         )
                         .await?;
+                    if bot.anti_afk_enabled {
+                        diagnostics
+                            .log_event(
+                                Some(&bot.account_id),
+                                Some(&bot_id_string),
+                                "info",
+                                "bot",
+                                Some("anti_afk"),
+                                "anti-AFK movement probe is enabled for this bot",
+                                serde_json::json!({
+                                    "strategy": "movement_probe",
+                                    "interval_seconds": 30
+                                }),
+                            )
+                            .await?;
+                    }
                     tokio::time::sleep(Duration::from_secs(30)).await;
                     Ok::<(), EngineError>(())
                 }
@@ -82,7 +97,7 @@ impl BotSupervisor {
 
                 if let Err(err) = result {
                     let _ = db
-                        .update_bot_status(&bot_id_string, "error", Some(&err.to_string()))
+                        .mark_bot_left(&bot_id_string, "error", Some(&err.to_string()))
                         .await;
                     let _ = diagnostics
                         .log_event(
@@ -110,7 +125,7 @@ impl BotSupervisor {
         if let Some(handle) = self.tasks.lock().await.remove(bot_id) {
             handle.abort();
         }
-        self.db.update_bot_status(bot_id, "stopped", None).await?;
+        self.db.mark_bot_left(bot_id, "stopped", None).await?;
         Ok(())
     }
 
@@ -120,10 +135,29 @@ impl BotSupervisor {
         host: &str,
         port: u16,
     ) -> EngineResult<crate::models::CapabilityStatus> {
+        self.validate_once_for(account_id, host, port, Duration::from_secs(300))
+            .await
+    }
+
+    pub async fn validate_once_for(
+        &self,
+        account_id: &str,
+        host: &str,
+        port: u16,
+        required_duration: Duration,
+    ) -> EngineResult<crate::models::CapabilityStatus> {
         let provisioner = EntitlementProvisioner::new(&self.config, self.db.clone());
         let session = provisioner.provision(account_id).await?;
         BedrockBotSession::new(self.db.clone())
-            .validate_real_server(account_id, None, host, port, &session, true)
+            .validate_real_server_for(
+                account_id,
+                None,
+                host,
+                port,
+                &session,
+                true,
+                required_duration,
+            )
             .await
     }
 }

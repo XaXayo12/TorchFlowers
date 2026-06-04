@@ -250,9 +250,12 @@ dependencies = [
  "axum",
  "base64",
  "bedrock",
+ "bedrock_protocol_core",
+ "binary-util",
  "chrono",
  "dotenvy",
  "jsonwebtoken",
+ "p256",
  "p384 0.14.0-rc.9",
  "rak-rs",
  "rand 0.9.4",
@@ -2274,8 +2277,6 @@ checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 [[package]]
 name = "rak-rs"
 version = "0.3.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b0af89c0be745f22876ea6ce7f3cc508de55ccf49147fb8ae6bfd1b86c71ab7"
 dependencies = [
  "binary-util",
  "byteorder",
@@ -3834,7 +3835,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

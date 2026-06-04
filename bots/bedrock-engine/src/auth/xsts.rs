@@ -1,11 +1,17 @@
 use reqwest::Method;
 use serde::Deserialize;
-use serde_json::json;
+use serde_json::{Map, Value, json};
 
-use crate::{auth::XstsToken, db::Database, diagnostics::Diagnostics, error::EngineResult};
+use crate::{
+    auth::{XboxIdentity, XstsToken},
+    db::Database,
+    diagnostics::Diagnostics,
+    error::EngineResult,
+};
 
 pub const BEDROCK_RELYING_PARTY: &str = "https://multiplayer.minecraft.net/";
 pub const PLAYFAB_RELYING_PARTY: &str = "http://playfab.xboxlive.com/";
+const XSTS_AUTHORIZE_URL: &str = "https://xsts.auth.xboxlive.com/xsts/authorize";
 
 #[derive(Clone)]
 pub struct XstsAuth {
@@ -24,28 +30,52 @@ impl XstsAuth {
     pub async fn authorize(
         &self,
         account_id: &str,
-        xbox_user_token: &str,
+        xbox: &XboxIdentity,
         relying_party: &str,
         step: &'static str,
     ) -> EngineResult<XstsToken> {
+        let mut properties = Map::new();
+        properties.insert("SandboxId".to_string(), json!("RETAIL"));
+        properties.insert("UserTokens".to_string(), json!([xbox.token]));
+        if let Some(device_token) = &xbox.device_token {
+            properties.insert("DeviceToken".to_string(), json!(device_token));
+        }
+        if let Some(title_token) = &xbox.title_token {
+            properties.insert("TitleToken".to_string(), json!(title_token));
+        }
+        if let Some(proof_key) = &xbox.proof_key {
+            properties.insert("ProofKey".to_string(), proof_key.jwk());
+        }
+
         let body = json!({
-            "Properties": {
-                "SandboxId": "RETAIL",
-                "UserTokens": [xbox_user_token]
-            },
+            "Properties": Value::Object(properties),
             "RelyingParty": relying_party,
             "TokenType": "JWT"
         });
+        let body_text = body.to_string();
+        let mut headers = vec![
+            (
+                "Cache-Control",
+                "no-store, must-revalidate, no-cache".to_string(),
+            ),
+            ("x-xbl-contract-version", "1".to_string()),
+        ];
+        if let Some(proof_key) = &xbox.proof_key {
+            headers.push((
+                "Signature",
+                proof_key.signature_header(XSTS_AUTHORIZE_URL, "", &body_text),
+            ));
+        }
         let (response, _, _) = self
             .diagnostics
-            .request_json::<XstsAuthResponse>(
+            .request_json_text::<XstsAuthResponse>(
                 &self.client,
                 Some(account_id),
                 step,
                 Method::POST,
-                "https://xsts.auth.xboxlive.com/xsts/authorize",
-                vec![("x-xbl-contract-version", "1".to_string())],
-                body,
+                XSTS_AUTHORIZE_URL,
+                headers,
+                body_text,
             )
             .await?;
         let xui = response

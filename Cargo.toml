@@ -5,5 +5,7 @@ members = ["bots/bedrock-engine"]
 [workspace.package]
 edition = "2024"
 license = "MIT"
-repository = "https://github.com/local/rustrock"
+repository = "https://github.com/Osamu-GWAD/RustBedrockProtocol"
 
+[patch.crates-io]
+rak-rs = { path = "vendor/rak-rs" }
