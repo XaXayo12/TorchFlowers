@@ -1,4 +1,4 @@
-﻿# TorchFlower Bedrock Engine
+# TorchFlower Bedrock Engine
 
 TorchFlower is a Rust Minecraft Bedrock client engine for authenticated real-server validation and bot-session experiments. The repository is intentionally Rust-only: authentication, entitlement provisioning, Bedrock networking, persistence, diagnostics, and validation all live in the engine.
 
@@ -92,4 +92,3 @@ If block placing fails, inspect `[GAMEPLAY_PICKUP]` and `[GAMEPLAY_INVENTORY]` l
 cargo test -p bedrock-engine
 cargo build -p bedrock-engine
 ```
-
