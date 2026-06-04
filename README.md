@@ -1,6 +1,6 @@
-# RustRock Bedrock Engine
+﻿# TorchFlower Bedrock Engine
 
-RustRock is a Rust Minecraft Bedrock client engine for authenticated real-server validation and bot-session experiments. The repository is intentionally Rust-only: authentication, entitlement provisioning, Bedrock networking, persistence, diagnostics, and validation all live in the engine.
+TorchFlower is a Rust Minecraft Bedrock client engine for authenticated real-server validation and bot-session experiments. The repository is intentionally Rust-only: authentication, entitlement provisioning, Bedrock networking, persistence, diagnostics, and validation all live in the engine.
 
 ## Workspace
 
@@ -46,7 +46,7 @@ Copy `.env.example` to `.env` and set values as needed:
 MICROSOFT_AUTH_FLOW=live
 MICROSOFT_CLIENT_ID=
 TOKEN_ENCRYPTION_SECRET=replace-with-32-plus-random-characters
-DATABASE_URL=sqlite://database/rustrock.sqlite
+DATABASE_URL=sqlite://database/torchflower.sqlite
 RUST_ENGINE_BIND=127.0.0.1:9080
 LOG_LEVEL=info
 BEDROCK_VALIDATE_ACCOUNT_ID=<account-id>
@@ -92,3 +92,4 @@ If block placing fails, inspect `[GAMEPLAY_PICKUP]` and `[GAMEPLAY_INVENTORY]` l
 cargo test -p bedrock-engine
 cargo build -p bedrock-engine
 ```
+

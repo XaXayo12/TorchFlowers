@@ -75,7 +75,7 @@ fn bedrock_rs_round_trips_validation_packet_surface() {
     > {
         localize: false,
         message_type: TextPacketType::Chat {
-            player_name: "RustRock".to_string(),
+            player_name: "TorchFlower".to_string(),
             message: "validation".to_string(),
         },
         sender_xuid: String::new(),
@@ -230,7 +230,7 @@ fn adapter_derives_bedrock_encryption_from_server_handshake() {
         client_signing_key,
         client_private_key_pem,
         client_public_key,
-        "RustRock",
+        "TorchFlower",
         "12345",
         Some("test-playfab-id"),
     )

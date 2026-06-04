@@ -258,7 +258,7 @@ impl BedrockProtocolAdapter {
 
     // Bedrock Login wraps LoginTokens in an `encapsulated` field: a varint byte
     // length followed by the two LittleString JWT fields. Keep the layout
-    // explicit here so RustRock can byte-compare it against bedrock-protocol.
+    // explicit here so TorchFlower can byte-compare it against bedrock-protocol.
     pub fn encode_login_packet_batch(
         connection_request: &[u8],
         compression: Option<&Compression>,
@@ -764,7 +764,7 @@ fn log_packet_summaries(direction: &str, packet_stream: &[u8]) {
                     trace_start_game_packet(summary.packet, summary.payload_offset);
                 }
                 if direction == "RX" && summary.packet_id == 0x72 {
-                    let _ = RustRockUpdateSoftEnumPacket::deserialize_with_trace(
+                    let _ = TorchFlowerUpdateSoftEnumPacket::deserialize_with_trace(
                         summary.packet,
                         summary.payload_offset,
                     );
@@ -975,10 +975,12 @@ fn trace_known_packet_impl(summary: &PacketSummary<'_>) {
         0x6a => skip_trace_string(summary.packet, &mut offset),
         0x6b => decode_set_display_objective_boundary(summary.packet, &mut offset),
         0x6c => decode_set_score_boundary(summary.packet, &mut offset),
-        0x72 => RustRockUpdateSoftEnumPacket::deserialize(summary.packet, summary.payload_offset)
-            .map(|_| {
-                offset = summary.packet.len();
-            }),
+        0x72 => {
+            TorchFlowerUpdateSoftEnumPacket::deserialize(summary.packet, summary.payload_offset)
+                .map(|_| {
+                    offset = summary.packet.len();
+                })
+        }
         0xa5 => skip_trace_nbt(summary.packet, &mut offset),
         0xbb => decode_update_abilities_boundary(summary.packet, &mut offset),
         0xbc => skip_trace_bytes(summary.packet, &mut offset, 5),
@@ -1227,7 +1229,7 @@ fn filter_locally_decoded_packets(
 
     while let Some(summary) = read_packet_summary(packet_stream, &mut offset)? {
         if summary.packet_id == 0x72 {
-            RustRockUpdateSoftEnumPacket::deserialize(summary.packet, summary.payload_offset)
+            TorchFlowerUpdateSoftEnumPacket::deserialize(summary.packet, summary.payload_offset)
                 .map_err(|err| {
                     EngineError::Bedrock(format!("decode UpdateSoftEnumPacket: {err}"))
                 })?;
@@ -1243,20 +1245,20 @@ fn filter_locally_decoded_packets(
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RustRockUpdateSoftEnumPacket {
+pub struct TorchFlowerUpdateSoftEnumPacket {
     pub enum_name: String,
     pub options: Vec<String>,
-    pub action_type: RustRockSoftEnumAction,
+    pub action_type: TorchFlowerSoftEnumAction,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RustRockSoftEnumAction {
+pub enum TorchFlowerSoftEnumAction {
     Add,
     Remove,
     Update,
 }
 
-impl RustRockSoftEnumAction {
+impl TorchFlowerSoftEnumAction {
     fn from_u8(value: u8) -> Result<Self, String> {
         match value {
             0 => Ok(Self::Add),
@@ -1275,7 +1277,7 @@ impl RustRockSoftEnumAction {
     }
 }
 
-impl RustRockUpdateSoftEnumPacket {
+impl TorchFlowerUpdateSoftEnumPacket {
     pub fn serialize(&self, out: &mut Vec<u8>) {
         write_trace_string(&self.enum_name, out);
         write_unsigned_varint_u32(self.options.len() as u32, out);
@@ -1309,7 +1311,7 @@ impl RustRockUpdateSoftEnumPacket {
             for index in 0..option_count {
                 options.push(cursor.indexed_string("option", index)?);
             }
-            let action_type = RustRockSoftEnumAction::from_u8(cursor.u8("action_type")?)?;
+            let action_type = TorchFlowerSoftEnumAction::from_u8(cursor.u8("action_type")?)?;
             Ok(Self {
                 enum_name,
                 options,
@@ -3215,10 +3217,10 @@ mod tests {
 
     #[test]
     fn update_soft_enum_uses_varint_options_and_u8_action() {
-        let packet = RustRockUpdateSoftEnumPacket {
+        let packet = TorchFlowerUpdateSoftEnumPacket {
             enum_name: "commands".to_string(),
             options: vec!["spawn".to_string(), "home".to_string()],
-            action_type: RustRockSoftEnumAction::Update,
+            action_type: TorchFlowerSoftEnumAction::Update,
         };
         let mut payload = Vec::new();
         packet.serialize(&mut payload);
@@ -3240,16 +3242,16 @@ mod tests {
         bedrock_packet.extend_from_slice(&payload);
 
         let decoded =
-            RustRockUpdateSoftEnumPacket::deserialize(&bedrock_packet, payload_offset).unwrap();
+            TorchFlowerUpdateSoftEnumPacket::deserialize(&bedrock_packet, payload_offset).unwrap();
         assert_eq!(decoded, packet);
     }
 
     #[test]
     fn update_soft_enum_filter_removes_packet_before_upstream_decode() {
-        let packet = RustRockUpdateSoftEnumPacket {
+        let packet = TorchFlowerUpdateSoftEnumPacket {
             enum_name: "commands".to_string(),
             options: vec!["spawn".to_string()],
-            action_type: RustRockSoftEnumAction::Add,
+            action_type: TorchFlowerSoftEnumAction::Add,
         };
         let mut soft_enum_payload = Vec::new();
         packet.serialize(&mut soft_enum_payload);

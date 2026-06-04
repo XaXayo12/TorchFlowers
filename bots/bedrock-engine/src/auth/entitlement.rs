@@ -275,7 +275,7 @@ impl EntitlementProvisioner {
             .gamertag
             .as_deref()
             .or(xbox.gamertag.as_deref())
-            .unwrap_or("RustRockBot");
+            .unwrap_or("TorchFlowerBot");
         let xuid = standard_xsts
             .xuid
             .as_deref()

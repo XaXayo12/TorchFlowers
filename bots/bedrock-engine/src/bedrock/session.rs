@@ -3147,7 +3147,7 @@ impl BedrockBotSession {
     }
 
     async fn send_chat_probe(&self, conn: &mut BedrockProtocolAdapter) -> EngineResult<()> {
-        self.send_text_message(conn, "RustRock validation online")
+        self.send_text_message(conn, "TorchFlower validation online")
             .await
     }
 
@@ -3219,7 +3219,7 @@ impl BedrockBotSession {
         > {
             localize: false,
             message_type: TextPacketType::Chat {
-                player_name: "RustRock".to_string(),
+                player_name: "TorchFlower".to_string(),
                 message: message.to_string(),
             },
             sender_xuid: String::new(),
@@ -5813,7 +5813,7 @@ mod tests {
             "command_request"
         );
         assert_eq!(
-            validation_command_mode("RustRock validation online", None),
+            validation_command_mode("TorchFlower validation online", None),
             "text"
         );
     }

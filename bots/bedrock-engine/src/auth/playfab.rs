@@ -47,7 +47,7 @@ impl PlayFabAuth {
                 "playfab_login_with_xbox",
                 Method::POST,
                 "https://20ca2.playfabapi.com/Client/LoginWithXbox",
-                vec![("X-PlayFabSDK", "RustRockEngine/0.1.0".to_string())],
+                vec![("X-PlayFabSDK", "TorchFlowerEngine/0.1.0".to_string())],
                 body,
             )
             .await?;

@@ -73,7 +73,7 @@ impl Config {
             microsoft_auth_flow,
             token_encryption_secret: required_env("TOKEN_ENCRYPTION_SECRET")?,
             database_url: std::env::var("DATABASE_URL")
-                .unwrap_or_else(|_| "sqlite://database/rustrock.sqlite".to_string()),
+                .unwrap_or_else(|_| "sqlite://database/torchflower.sqlite".to_string()),
             rust_engine_bind: std::env::var("RUST_ENGINE_BIND")
                 .unwrap_or_else(|_| "127.0.0.1:9080".to_string()),
         })

@@ -53,7 +53,7 @@ fn jwt_chain_generator_creates_connection_request() {
         signing_key,
         private_key,
         public_key.clone(),
-        "RustRock",
+        "TorchFlower",
         "12345",
         Some("test-playfab-id"),
     )
