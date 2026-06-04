@@ -437,6 +437,24 @@ impl Database {
             .collect()
     }
 
+    pub async fn get_server(&self, server_id: &str) -> EngineResult<Server> {
+        let row = sqlx::query(
+            "SELECT id,name,host,port,protocol_version,enabled FROM servers WHERE id=?1",
+        )
+        .bind(server_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| EngineError::NotFound(format!("server {server_id}")))?;
+        Ok(Server {
+            id: row.try_get("id")?,
+            name: row.try_get("name")?,
+            host: row.try_get("host")?,
+            port: row.try_get("port")?,
+            protocol_version: row.try_get("protocol_version")?,
+            enabled: row.try_get::<i64, _>("enabled")? == 1,
+        })
+    }
+
     pub async fn create_bot(&self, account_id: &str, server_id: &str) -> EngineResult<String> {
         let id = Uuid::new_v4().to_string();
         sqlx::query(

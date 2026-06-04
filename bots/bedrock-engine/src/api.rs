@@ -2,16 +2,20 @@ use std::net::SocketAddr;
 
 use axum::{
     Json, Router,
+    body::Body,
     extract::{Path, Query, State},
-    http::Method,
+    http::{
+        HeaderMap, Method, Request, StatusCode,
+        header::{AUTHORIZATION, CONTENT_TYPE, HeaderName, HeaderValue},
+    },
+    middleware::{self, Next},
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tower_http::{
-    cors::{Any, CorsLayer},
-    trace::TraceLayer,
-};
+use subtle::ConstantTimeEq;
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
 
 use crate::{
     auth::{entitlement::EntitlementProvisioner, microsoft::MicrosoftAuth},
@@ -30,40 +34,111 @@ pub struct AppState {
 }
 
 pub async fn serve(config: Config, db: Database, bind: SocketAddr) -> anyhow::Result<()> {
+    let app = build_router(config, db, bind)?;
+    let listener = tokio::net::TcpListener::bind(bind).await?;
+    tracing::info!(%bind, "torchflower engine API listening");
+    axum::serve(listener, app).await?;
+    Ok(())
+}
+
+pub fn build_router(config: Config, db: Database, bind: SocketAddr) -> EngineResult<Router> {
+    config.validate_api_security(bind)?;
     let state = AppState {
         bots: BotSupervisor::new(config.clone(), db.clone()),
         config,
         db,
     };
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
-        .allow_headers(Any);
+    let cors = cors_layer(&state.config)?;
+    let auth_config = state.config.clone();
+    let api = Router::new()
+        .route("/accounts", get(list_accounts).post(import_account))
+        .route("/entitlements", get(list_entitlements))
+        .route("/accounts/{account_id}/provision", post(provision_account))
+        .route("/auth/sessions/{session_id}/poll", post(poll_auth_session))
+        .route("/servers", get(list_servers).post(create_server))
+        .route("/bots", get(list_bots).post(create_bot))
+        .route("/bots/{bot_id}/start", post(start_bot))
+        .route("/bots/{bot_id}/stop", post(stop_bot))
+        .route("/logs", get(list_logs))
+        .route("/validate-real-server", post(validate_real_server))
+        .route_layer(middleware::from_fn_with_state(
+            auth_config,
+            require_api_auth,
+        ));
     let app = Router::new()
         .route("/health", get(health))
-        .route("/api/accounts", get(list_accounts).post(import_account))
-        .route("/api/entitlements", get(list_entitlements))
-        .route(
-            "/api/accounts/{account_id}/provision",
-            post(provision_account),
-        )
-        .route(
-            "/api/auth/sessions/{session_id}/poll",
-            post(poll_auth_session),
-        )
-        .route("/api/servers", get(list_servers).post(create_server))
-        .route("/api/bots", get(list_bots).post(create_bot))
-        .route("/api/bots/{bot_id}/start", post(start_bot))
-        .route("/api/bots/{bot_id}/stop", post(stop_bot))
-        .route("/api/logs", get(list_logs))
-        .route("/api/validate-real-server", post(validate_real_server))
+        .nest("/api", api)
         .layer(cors)
         .layer(TraceLayer::new_for_http())
         .with_state(state);
-    let listener = tokio::net::TcpListener::bind(bind).await?;
-    tracing::info!(%bind, "bedrock engine API listening");
-    axum::serve(listener, app).await?;
-    Ok(())
+    Ok(app)
+}
+
+fn cors_layer(config: &Config) -> EngineResult<CorsLayer> {
+    let origins = config
+        .cors_allowed_origins
+        .iter()
+        .map(|origin| {
+            origin.parse::<HeaderValue>().map_err(|_| {
+                crate::error::EngineError::InvalidRequest(format!(
+                    "invalid CORS origin configured: {origin}"
+                ))
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(CorsLayer::new()
+        .allow_origin(origins)
+        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
+        .allow_headers([
+            AUTHORIZATION,
+            CONTENT_TYPE,
+            HeaderName::from_static("x-torchflower-api-key"),
+        ]))
+}
+
+async fn require_api_auth(
+    State(config): State<Config>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    if config.dev_allow_unauth_api && config.api_key.is_none() {
+        return next.run(request).await;
+    }
+    let authorized = config
+        .api_key
+        .as_deref()
+        .zip(supplied_api_key(request.headers()))
+        .is_some_and(|(expected, supplied)| expected.as_bytes().ct_eq(supplied.as_bytes()).into());
+    if authorized {
+        return next.run(request).await;
+    }
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(json!({
+            "error": {
+                "code": "unauthorized",
+                "message": "valid TorchFlower API credentials are required",
+                "request_id": null
+            }
+        })),
+    )
+        .into_response()
+}
+
+fn supplied_api_key(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(AUTHORIZATION)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            headers
+                .get("x-torchflower-api-key")
+                .and_then(|value| value.to_str().ok())
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+        })
 }
 
 async fn health() -> Json<serde_json::Value> {
@@ -229,7 +304,8 @@ async fn list_logs(
 #[derive(Debug, Deserialize)]
 struct ValidateRealServerRequest {
     account_id: String,
-    host: String,
+    server_id: Option<String>,
+    host: Option<String>,
     port: Option<u16>,
     duration_seconds: Option<u64>,
 }
@@ -238,13 +314,30 @@ async fn validate_real_server(
     State(state): State<AppState>,
     Json(input): Json<ValidateRealServerRequest>,
 ) -> EngineResult<Json<CapabilityStatus>> {
+    let (host, port) = if let Some(server_id) = input.server_id.as_deref() {
+        let server = state.db.get_server(server_id).await?;
+        (server.host, server.port as u16)
+    } else {
+        let host = input.host.ok_or_else(|| {
+            crate::error::EngineError::InvalidRequest(
+                "validate-real-server requires server_id or host".to_string(),
+            )
+        })?;
+        if !state.config.is_server_host_allowed(&host) {
+            return Err(crate::error::EngineError::InvalidRequest(format!(
+                "host {host} is not in TORCHFLOWER_ALLOWED_SERVER_HOSTS"
+            )));
+        }
+        let port = input.port.unwrap_or(19132);
+        (host, port)
+    };
     Ok(Json(
         state
             .bots
             .validate_once_for(
                 &input.account_id,
-                &input.host,
-                input.port.unwrap_or(19132),
+                &host,
+                port,
                 std::time::Duration::from_secs(input.duration_seconds.unwrap_or(300).clamp(5, 900)),
             )
             .await?,

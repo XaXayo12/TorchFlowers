@@ -22,13 +22,13 @@ use bedrock::{
         v924::enums::TextPacketType,
     },
 };
-use bedrock_engine::{
-    auth::minecraft::MinecraftAuth, bedrock::protocol_adapter::BedrockProtocolAdapter,
-};
 use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
 use p384::{
     PublicKey, SecretKey,
     pkcs8::{DecodePrivateKey, DecodePublicKey},
+};
+use torchflower_engine::{
+    auth::minecraft::MinecraftAuth, bedrock::protocol_adapter::BedrockProtocolAdapter,
 };
 
 #[test]

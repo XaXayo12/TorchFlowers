@@ -1,7 +1,6 @@
 use crate::{
-    auth::entitlement::EntitlementProvisioner,
-    bedrock::session::BedrockBotSession,
     config::Config,
+    core::{AutomationPolicy, BotSession, ServerAddress},
     db::Database,
     error::{EngineError, EngineResult},
 };
@@ -30,20 +29,21 @@ impl RealServerValidation {
             .and_then(|v| v.parse::<u64>().ok())
             .unwrap_or(300)
             .clamp(5, 900);
-        let provisioned = EntitlementProvisioner::new(&self.config, self.db.clone())
-            .provision(&account_id)
-            .await?;
-        let status = BedrockBotSession::new(self.db.clone())
-            .validate_real_server_for(
-                &account_id,
-                None,
-                &host,
-                port,
-                &provisioned,
-                true,
-                std::time::Duration::from_secs(duration),
-            )
-            .await?;
+        let mut policy = AutomationPolicy::allow_for_hosts([host.clone()]);
+        policy.allow_gameplay_actions = true;
+        let bot = BotSession::builder()
+            .config(self.config.clone())
+            .database(self.db.clone())
+            .account(account_id.clone())
+            .server(ServerAddress::new(host.clone(), port))
+            .automation_policy(policy)
+            .build()
+            .await
+            .map_err(|err| EngineError::InvalidRequest(err.to_string()))?;
+        let status = bot
+            .validate_for(std::time::Duration::from_secs(duration), true)
+            .await
+            .map_err(|err| EngineError::Bedrock(err.to_string()))?;
         println!("{}", serde_json::to_string_pretty(&status)?);
         if !status.success {
             return Err(EngineError::Bedrock(format!(

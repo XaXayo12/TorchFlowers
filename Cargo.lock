@@ -241,39 +241,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bedrock-engine"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "async-trait",
- "axum",
- "base64",
- "bedrock",
- "bedrock_protocol_core",
- "binary-util",
- "chrono",
- "dotenvy",
- "jsonwebtoken",
- "p256",
- "p384 0.14.0-rc.9",
- "rak-rs",
- "rand 0.9.4",
- "reqwest",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "sqlx",
- "thiserror",
- "tokio",
- "tower-http",
- "tracing",
- "tracing-subscriber",
- "urlencoding",
- "uuid",
-]
-
-[[package]]
 name = "bedrock_auth"
 version = "0.1.0"
 source = "git+https://github.com/bedrock-crustaceans/bedrock-rs.git?rev=c44d5f51a9036a04cc8661f4be02e2cff40c6ab1#c44d5f51a9036a04cc8661f4be02e2cff40c6ab1"
@@ -3402,6 +3369,41 @@ dependencies = [
  "futures-sink",
  "pin-project-lite",
  "tokio",
+]
+
+[[package]]
+name = "torchflower-engine"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "async-trait",
+ "axum",
+ "base64",
+ "bedrock",
+ "bedrock_protocol_core",
+ "binary-util",
+ "chrono",
+ "dotenvy",
+ "jsonwebtoken",
+ "p256",
+ "p384 0.14.0-rc.9",
+ "rak-rs",
+ "rand 0.9.4",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sqlx",
+ "subtle",
+ "thiserror",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tracing",
+ "tracing-subscriber",
+ "urlencoding",
+ "uuid",
 ]
 
 [[package]]

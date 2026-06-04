@@ -3,9 +3,8 @@ use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::{sync::Mutex, task::JoinHandle};
 
 use crate::{
-    auth::entitlement::EntitlementProvisioner,
-    bedrock::session::BedrockBotSession,
     config::Config,
+    core::{AutomationPolicy, BotSession, ServerAddress},
     db::Database,
     diagnostics::Diagnostics,
     error::{EngineError, EngineResult},
@@ -38,25 +37,25 @@ impl BotSupervisor {
         let bot_id_string = bot_id.to_string();
         let handle = tokio::spawn(async move {
             let diagnostics = Diagnostics::new(db.clone());
-            let provisioner = EntitlementProvisioner::new(&config, db.clone());
-            let runner = BedrockBotSession::new(db.clone());
             loop {
                 let result = async {
                     db.update_bot_status(&bot_id_string, "authenticating", None)
                         .await?;
-                    let session = provisioner.provision(&bot.account_id).await?;
                     db.update_bot_status(&bot_id_string, "connecting", None)
                         .await?;
+                    let runner = BotSession::builder()
+                        .config(config.clone())
+                        .database(db.clone())
+                        .account(bot.account_id.clone())
+                        .server(ServerAddress::new(server.host.clone(), server.port as u16))
+                        .automation_policy(AutomationPolicy::default())
+                        .build()
+                        .await
+                        .map_err(|err| EngineError::InvalidRequest(err.to_string()))?;
                     let capabilities = runner
-                        .validate_real_server(
-                            &bot.account_id,
-                            Some(&bot_id_string),
-                            &server.host,
-                            server.port as u16,
-                            &session,
-                            false,
-                        )
-                        .await?;
+                        .validate_for(Duration::from_secs(300), false)
+                        .await
+                        .map_err(|err| EngineError::Bedrock(err.to_string()))?;
                     db.update_bot_capabilities(
                         &bot_id_string,
                         &serde_json::to_value(&capabilities).map_err(EngineError::Json)?,
@@ -146,18 +145,18 @@ impl BotSupervisor {
         port: u16,
         required_duration: Duration,
     ) -> EngineResult<crate::models::CapabilityStatus> {
-        let provisioner = EntitlementProvisioner::new(&self.config, self.db.clone());
-        let session = provisioner.provision(account_id).await?;
-        BedrockBotSession::new(self.db.clone())
-            .validate_real_server_for(
-                account_id,
-                None,
-                host,
-                port,
-                &session,
-                true,
-                required_duration,
-            )
+        let runner = BotSession::builder()
+            .config(self.config.clone())
+            .database(self.db.clone())
+            .account(account_id.to_string())
+            .server(ServerAddress::new(host.to_string(), port))
+            .automation_policy(AutomationPolicy::allow_for_hosts([host.to_string()]))
+            .build()
             .await
+            .map_err(|err| EngineError::InvalidRequest(err.to_string()))?;
+        runner
+            .validate_for(required_duration, true)
+            .await
+            .map_err(|err| EngineError::Bedrock(err.to_string()))
     }
 }

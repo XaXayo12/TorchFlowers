@@ -10,11 +10,22 @@ use crate::{
 #[derive(Clone)]
 pub struct Diagnostics {
     db: Database,
+    capture_auth_bodies: bool,
 }
 
 impl Diagnostics {
     pub fn new(db: Database) -> Self {
-        Self { db }
+        Self {
+            db,
+            capture_auth_bodies: dangerous_body_capture_enabled(),
+        }
+    }
+
+    pub fn new_with_body_capture(db: Database, capture_auth_bodies: bool) -> Self {
+        Self {
+            db,
+            capture_auth_bodies,
+        }
     }
 
     pub async fn log_event(
@@ -61,13 +72,13 @@ impl Diagnostics {
         for (name, value) in &headers {
             request = request.header(*name, value);
         }
-        let redacted_body = redact_value(body.clone());
-        let redacted_body_text = redacted_body.to_string();
         let response = request.json(&body).send().await?;
         let status = response.status();
         let request_id = request_id(response.headers());
         let response_body = response.text().await?;
-        let redacted_response_body = redact_json_string(&response_body);
+        let request_body = self.capture_json_body(body);
+        let response_body_for_log = self.capture_raw_body(&response_body);
+        let metadata = http_log_metadata(self.capture_auth_bodies);
         self.db
             .log(NewLogEntry {
                 account_id,
@@ -79,44 +90,29 @@ impl Diagnostics {
                 method: Some(method.as_str()),
                 url: Some(url),
                 status_code: Some(status.as_u16() as i64),
-                request_body: Some(&redacted_body_text),
-                response_body: Some(&redacted_response_body),
+                request_body: request_body.as_deref(),
+                response_body: response_body_for_log.as_deref(),
                 message: if status.is_success() {
                     "authentication HTTP step succeeded"
                 } else {
                     "authentication HTTP step failed"
                 },
-                metadata_json: Some("{}"),
+                metadata_json: Some(&metadata),
             })
             .await?;
         if !status.is_success() {
             return Err(EngineError::Auth {
                 step,
-                message: format!(
-                    "status={}; body={}",
-                    status.as_u16(),
-                    preview(&response_body)
-                ),
+                message: auth_error_message(status, request_id.as_deref()),
             });
         }
         let parsed = serde_json::from_str(&response_body).map_err(|err| EngineError::Auth {
             step,
             message: format!(
-                "response was not valid JSON: {err}; status={}; body={}",
-                status.as_u16(),
-                preview(&response_body)
+                "response was not valid JSON: {err}; status={}",
+                status.as_u16()
             ),
         })?;
-        if !status.is_success() {
-            return Err(EngineError::Auth {
-                step,
-                message: format!(
-                    "status={}; body={}",
-                    status.as_u16(),
-                    preview(&response_body)
-                ),
-            });
-        }
         Ok((parsed, request_id, status))
     }
 
@@ -134,12 +130,13 @@ impl Diagnostics {
         for (name, value) in &headers {
             request = request.header(*name, value);
         }
-        let redacted_body_text = redact_json_string(&body_text);
+        let request_body = self.capture_raw_body(&body_text);
         let response = request.body(body_text).send().await?;
         let status = response.status();
         let request_id = request_id(response.headers());
         let response_body = response.text().await?;
-        let redacted_response_body = redact_json_string(&response_body);
+        let response_body_for_log = self.capture_raw_body(&response_body);
+        let metadata = http_log_metadata(self.capture_auth_bodies);
         self.db
             .log(NewLogEntry {
                 account_id,
@@ -151,32 +148,27 @@ impl Diagnostics {
                 method: Some(method.as_str()),
                 url: Some(url),
                 status_code: Some(status.as_u16() as i64),
-                request_body: Some(&redacted_body_text),
-                response_body: Some(&redacted_response_body),
+                request_body: request_body.as_deref(),
+                response_body: response_body_for_log.as_deref(),
                 message: if status.is_success() {
                     "authentication HTTP step succeeded"
                 } else {
                     "authentication HTTP step failed"
                 },
-                metadata_json: Some("{}"),
+                metadata_json: Some(&metadata),
             })
             .await?;
         if !status.is_success() {
             return Err(EngineError::Auth {
                 step,
-                message: format!(
-                    "status={}; body={}",
-                    status.as_u16(),
-                    preview(&response_body)
-                ),
+                message: auth_error_message(status, request_id.as_deref()),
             });
         }
         let parsed = serde_json::from_str(&response_body).map_err(|err| EngineError::Auth {
             step,
             message: format!(
-                "response was not valid JSON: {err}; status={}; body={}",
-                status.as_u16(),
-                preview(&response_body)
+                "response was not valid JSON: {err}; status={}",
+                status.as_u16()
             ),
         })?;
         Ok((parsed, request_id, status))
@@ -195,7 +187,7 @@ impl Diagnostics {
                 .map(|(key, value)| ((*key).to_string(), Value::String(value.clone())))
                 .collect(),
         );
-        let redacted_body = redact_value(body_json).to_string();
+        let request_body = self.capture_json_body(body_json);
         let response = client
             .post(url)
             .header("Content-Type", "application/x-www-form-urlencoded")
@@ -205,7 +197,8 @@ impl Diagnostics {
         let status = response.status();
         let request_id = request_id(response.headers());
         let response_body = response.text().await?;
-        let redacted_response_body = redact_json_string(&response_body);
+        let response_body_for_log = self.capture_raw_body(&response_body);
+        let metadata = http_log_metadata(self.capture_auth_bodies);
         self.db
             .log(NewLogEntry {
                 account_id,
@@ -217,25 +210,39 @@ impl Diagnostics {
                 method: Some("POST"),
                 url: Some(url),
                 status_code: Some(status.as_u16() as i64),
-                request_body: Some(&redacted_body),
-                response_body: Some(&redacted_response_body),
+                request_body: request_body.as_deref(),
+                response_body: response_body_for_log.as_deref(),
                 message: if status.is_success() {
                     "authentication HTTP step succeeded"
                 } else {
                     "authentication HTTP step failed"
                 },
-                metadata_json: Some("{}"),
+                metadata_json: Some(&metadata),
             })
             .await?;
+        if !status.is_success() {
+            return Err(EngineError::Auth {
+                step,
+                message: auth_error_message(status, request_id.as_deref()),
+            });
+        }
         let parsed = serde_json::from_str(&response_body).map_err(|err| EngineError::Auth {
             step,
             message: format!(
-                "response was not valid JSON: {err}; status={}; body={}",
-                status.as_u16(),
-                preview(&response_body)
+                "response was not valid JSON: {err}; status={}",
+                status.as_u16()
             ),
         })?;
         Ok((parsed, request_id, status))
+    }
+
+    fn capture_json_body(&self, body: Value) -> Option<String> {
+        self.capture_auth_bodies
+            .then(|| redact_value(body).to_string())
+    }
+
+    fn capture_raw_body(&self, raw: &str) -> Option<String> {
+        self.capture_auth_bodies.then(|| redact_json_string(raw))
     }
 }
 
@@ -254,43 +261,69 @@ fn redact_json_string(raw: &str) -> String {
     serde_json::from_str::<Value>(raw)
         .map(redact_value)
         .map(|v| v.to_string())
-        .unwrap_or_else(|_| raw.chars().take(16_384).collect())
-}
-
-fn preview(raw: &str) -> String {
-    let value: String = raw.chars().take(512).collect();
-    if value.is_empty() {
-        "<empty>".to_string()
-    } else {
-        value
-    }
+        .unwrap_or_else(|_| "<non-json body redacted>".to_string())
 }
 
 fn redact_value(value: Value) -> Value {
     match value {
         Value::Object(mut map) => {
-            for key in [
-                "access_token",
-                "refresh_token",
-                "Token",
-                "token",
-                "SessionTicket",
-                "XboxToken",
-                "RpsTicket",
-                "Authorization",
-                "authorizationHeader",
-                "identity",
-                "chain",
-                "signedToken",
-            ] {
-                if map.contains_key(key) {
-                    map.insert(key.to_string(), Value::String("<redacted>".to_string()));
+            let keys = map.keys().cloned().collect::<Vec<_>>();
+            for key in keys {
+                if sensitive_key(&key) {
+                    map.insert(key, Value::String("<redacted>".to_string()));
                 }
             }
             Value::Object(map.into_iter().map(|(k, v)| (k, redact_value(v))).collect())
         }
         Value::Array(items) => Value::Array(items.into_iter().map(redact_value).collect()),
         other => other,
+    }
+}
+
+fn sensitive_key(key: &str) -> bool {
+    let key = key.to_ascii_lowercase();
+    [
+        "access_token",
+        "refresh_token",
+        "sessionticket",
+        "xboxtoken",
+        "rpsticket",
+        "authorization",
+        "identity",
+        "chain",
+        "signedtoken",
+        "token",
+        "secret",
+        "password",
+        "cookie",
+    ]
+    .iter()
+    .any(|needle| key.contains(needle))
+}
+
+fn dangerous_body_capture_enabled() -> bool {
+    std::env::var("TORCHFLOWER_DANGEROUS_LOG_AUTH_BODIES")
+        .ok()
+        .is_some_and(|value| {
+            matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+}
+
+fn http_log_metadata(capture_auth_bodies: bool) -> String {
+    json!({
+        "request_body_capture": if capture_auth_bodies { "dangerous_redacted" } else { "disabled" },
+        "response_body_capture": if capture_auth_bodies { "dangerous_redacted" } else { "disabled" }
+    })
+    .to_string()
+}
+
+fn auth_error_message(status: StatusCode, request_id: Option<&str>) -> String {
+    match request_id {
+        Some(request_id) => format!("status={}; request_id={request_id}", status.as_u16()),
+        None => format!("status={}", status.as_u16()),
     }
 }
 

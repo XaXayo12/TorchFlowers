@@ -1,10 +1,11 @@
 # TorchFlower Bedrock Engine
 
-TorchFlower is a Rust Minecraft Bedrock client engine for authenticated real-server validation and bot-session experiments. The repository is intentionally Rust-only: authentication, entitlement provisioning, Bedrock networking, persistence, diagnostics, and validation all live in the engine.
+TorchFlower is a Rust Minecraft Bedrock client engine for authenticated real-server validation and bot-session experiments. The repository is intentionally Rust-only: authentication, entitlement provisioning, Bedrock networking, persistence, diagnostics, validation, and the public bot API all live in the engine.
 
 ## Workspace
 
 - Engine crate: `bots/bedrock-engine`
+- Public Rust API: `torchflower_engine::core`
 - SQLite schema: `database/migrations/0001_initial.sql`
 - Local RakNet patch: `vendor/rak-rs`
 
@@ -21,11 +22,9 @@ The engine implements the full Bedrock account path:
 7. Legacy Bedrock authentication against `https://multiplayer.minecraft.net/authentication`
 8. Bedrock JWT chain generation
 
-Tokens and provisioning state are persisted in SQLite. Diagnostics record request status, response metadata, and authentication-stage failures.
+Tokens and provisioning state are persisted in SQLite.
 
-## Bedrock Client Capabilities
-
-The current engine covers the critical client pipeline used by modern Bedrock servers:
+## Capabilities
 
 - RakNet handshake, ACK/NACK handling, fragmentation, and reassembly
 - RequestNetworkSettings and ZLib negotiation
@@ -34,9 +33,19 @@ The current engine covers the critical client pipeline used by modern Bedrock se
 - StartGame, player spawn, keepalive, chat, inventory observation, movement, and disconnect handling
 - DonutSMP-compatible NetworkStackLatency response encoding
 - Server-confirmed block breaking evidence through UpdateBlock observation
-- Guarded block placing that only runs after a normal placeable item is confirmed in inventory
+- Guarded block placing after a normal placeable item is confirmed in inventory
+- Public session/controller API for scheduling chat, movement, inventory, interaction, block, respawn, and state-tracking actions
 
-Server menu, teleport, region-selector, and UI-tool items are rejected as placeable inventory even when their raw item id resembles a block. If a server does not provide a normal collectible drop, the validator reports block-breaking evidence separately and fails placement explicitly instead of producing a false positive.
+Server menu, teleport, region-selector, and UI-tool items are rejected as placeable inventory even when their raw item id resembles a block.
+
+## Security Defaults
+
+- `/health` is public; every `/api/*` route requires `TORCHFLOWER_API_KEY`.
+- Unauthenticated API mode is only allowed when `TORCHFLOWER_DEV_ALLOW_UNAUTH_API=true` and the bind address is loopback.
+- CORS allows only exact origins from `TORCHFLOWER_CORS_ALLOWED_ORIGINS`.
+- Direct real-server validation by host requires `TORCHFLOWER_ALLOWED_SERVER_HOSTS`; validation by stored `server_id` remains allowed.
+- Token storage prefers `TOKEN_ENCRYPTION_KEY_B64`, a base64-encoded 32-byte key.
+- Auth HTTP diagnostics do not store request/response bodies unless `TORCHFLOWER_DANGEROUS_LOG_AUTH_BODIES=true`; sensitive fields are still redacted.
 
 ## Configuration
 
@@ -45,24 +54,27 @@ Copy `.env.example` to `.env` and set values as needed:
 ```powershell
 MICROSOFT_AUTH_FLOW=live
 MICROSOFT_CLIENT_ID=
-TOKEN_ENCRYPTION_SECRET=replace-with-32-plus-random-characters
+TOKEN_ENCRYPTION_KEY_B64=replace-with-base64-encoded-32-random-bytes
 DATABASE_URL=sqlite://database/torchflower.sqlite
 RUST_ENGINE_BIND=127.0.0.1:9080
 LOG_LEVEL=info
+TORCHFLOWER_API_KEY=replace-with-random-api-key
+TORCHFLOWER_CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000
+TORCHFLOWER_ALLOWED_SERVER_HOSTS=example.org
 BEDROCK_VALIDATE_ACCOUNT_ID=<account-id>
 BEDROCK_VALIDATE_SERVER_HOST=<server-host>
 BEDROCK_VALIDATE_SERVER_PORT=19132
 BEDROCK_VALIDATE_DURATION_SECONDS=300
 ```
 
-`MICROSOFT_CLIENT_ID` is optional in Live mode. `TOKEN_ENCRYPTION_SECRET` should be a high-entropy local secret used to encrypt stored refresh tokens.
+`MICROSOFT_CLIENT_ID` is optional in Live mode. Keep `TOKEN_ENCRYPTION_KEY_B64` stable for the database; changing it makes stored token ciphertext undecryptable.
 
 ## Run
 
 Start the local engine API:
 
 ```powershell
-cargo run -p bedrock-engine
+cargo run -p torchflower-engine
 ```
 
 Run real-server validation:
@@ -72,7 +84,7 @@ $env:BEDROCK_VALIDATE_ACCOUNT_ID="<account-id>"
 $env:BEDROCK_VALIDATE_SERVER_HOST="<server-host>"
 $env:BEDROCK_VALIDATE_SERVER_PORT="19132"
 $env:BEDROCK_VALIDATE_DURATION_SECONDS="90"
-cargo run -p bedrock-engine -- validate-real-server
+cargo run -p torchflower-engine -- validate-real-server
 ```
 
 Expected successful gameplay output includes:
@@ -86,9 +98,33 @@ Expected successful gameplay output includes:
 
 If block placing fails, inspect `[GAMEPLAY_PICKUP]` and `[GAMEPLAY_INVENTORY]` lines. Normal failures distinguish missing drops from rejected server UI items.
 
+## Documentation
+
+- `docs/architecture.md`
+- `docs/security.md`
+- `docs/protocol-compatibility.md`
+- `docs/testing.md`
+- `docs/upstreaming-bedrock-rs.md`
+- `docs/api.md`
+
+## Examples
+
+Examples live under `bots/bedrock-engine/examples` and use environment variables instead of hardcoded secrets:
+
+- `login.rs`
+- `connect.rs`
+- `chat.rs`
+- `move_to_block.rs`
+- `break_and_pickup.rs`
+- `place_block.rs`
+- `multi_bot_supervisor.rs`
+- `local_api_with_auth.rs`
+
 ## Verification
 
 ```powershell
-cargo test -p bedrock-engine
-cargo build -p bedrock-engine
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+cargo build -p torchflower-engine
 ```

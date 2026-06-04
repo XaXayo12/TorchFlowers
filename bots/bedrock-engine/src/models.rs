@@ -77,7 +77,7 @@ pub struct LogEntry {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct CapabilityStatus {
     pub success: bool,
     pub login: bool,

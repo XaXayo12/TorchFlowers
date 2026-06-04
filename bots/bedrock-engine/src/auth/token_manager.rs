@@ -5,7 +5,6 @@ use aes_gcm::{
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use chrono::{DateTime, Duration, Utc};
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 
 use crate::{
     config::Config,
@@ -32,10 +31,8 @@ pub struct StoredMicrosoftTokens {
 
 impl TokenManager {
     pub fn new(config: &Config, db: Database) -> Self {
-        let mut hasher = Sha256::new();
-        hasher.update(config.token_encryption_secret.as_bytes());
-        let key = hasher.finalize();
-        let cipher = Aes256Gcm::new_from_slice(&key).expect("sha256 key length is always valid");
+        let cipher = Aes256Gcm::new_from_slice(&config.token_encryption_key)
+            .expect("configured token encryption key length is validated");
         Self {
             db,
             client: reqwest::Client::new(),
@@ -156,10 +153,16 @@ impl TokenManager {
         if !status.is_success() {
             return Err(EngineError::Auth {
                 step: "microsoft_refresh",
-                message: body,
+                message: format!("status={}", status.as_u16()),
             });
         }
-        Ok(serde_json::from_str(&body)?)
+        serde_json::from_str(&body).map_err(|err| EngineError::Auth {
+            step: "microsoft_refresh",
+            message: format!(
+                "response was not valid JSON: {err}; status={}",
+                status.as_u16()
+            ),
+        })
     }
 }
 

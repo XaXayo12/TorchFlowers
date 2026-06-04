@@ -27,7 +27,21 @@ pub enum EngineError {
 
 impl IntoResponse for EngineError {
     fn into_response(self) -> axum::response::Response {
-        let status = match self {
+        let status = self.status_code();
+        let body = Json(json!({
+            "error": {
+                "code": self.code(),
+                "message": self.safe_message(),
+                "request_id": null
+            }
+        }));
+        (status, body).into_response()
+    }
+}
+
+impl EngineError {
+    pub fn status_code(&self) -> StatusCode {
+        match self {
             EngineError::MissingConfig(_) => StatusCode::INTERNAL_SERVER_ERROR,
             EngineError::NotFound(_) => StatusCode::NOT_FOUND,
             EngineError::InvalidRequest(_) => StatusCode::BAD_REQUEST,
@@ -38,9 +52,37 @@ impl IntoResponse for EngineError {
             | EngineError::Io(_)
             | EngineError::Crypto(_)
             | EngineError::Bedrock(_) => StatusCode::INTERNAL_SERVER_ERROR,
-        };
-        let body = Json(json!({ "error": self.to_string() }));
-        (status, body).into_response()
+        }
+    }
+
+    pub fn code(&self) -> &'static str {
+        match self {
+            EngineError::MissingConfig(_) => "missing_config",
+            EngineError::Database(_) => "database_error",
+            EngineError::Http(_) => "http_error",
+            EngineError::Json(_) => "json_error",
+            EngineError::Io(_) => "io_error",
+            EngineError::Crypto(_) => "crypto_error",
+            EngineError::Auth { .. } => "auth_error",
+            EngineError::Bedrock(_) => "bedrock_error",
+            EngineError::NotFound(_) => "not_found",
+            EngineError::InvalidRequest(_) => "invalid_request",
+        }
+    }
+
+    pub fn safe_message(&self) -> String {
+        match self {
+            EngineError::MissingConfig(name) => format!("missing required configuration: {name}"),
+            EngineError::NotFound(_) => "resource not found".to_string(),
+            EngineError::InvalidRequest(message) => message.clone(),
+            EngineError::Auth { step, .. } => format!("authentication failed during {step}"),
+            EngineError::Database(_)
+            | EngineError::Http(_)
+            | EngineError::Json(_)
+            | EngineError::Io(_)
+            | EngineError::Crypto(_)
+            | EngineError::Bedrock(_) => "internal server error".to_string(),
+        }
     }
 }
 
