@@ -435,6 +435,7 @@ impl BotSession {
         duration: Duration,
         run_gameplay_validation: bool,
     ) -> BotResult<CapabilityStatus> {
+        self.db.get_account(&self.account_id).await?;
         let provisioned = EntitlementProvisioner::new(&self.config, self.db.clone())
             .provision(&self.account_id)
             .await?;
