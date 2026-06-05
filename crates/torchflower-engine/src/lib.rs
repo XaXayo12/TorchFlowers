@@ -21,5 +21,6 @@ pub mod db;
 pub mod diagnostics;
 pub mod error;
 pub mod models;
+pub mod native_client;
 pub mod pool;
 pub mod validation;

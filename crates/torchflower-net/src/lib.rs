@@ -111,6 +111,8 @@ pub mod client;
 pub mod connection;
 /// The error implementation of RakNet, allowing you to handle errors.
 pub mod error;
+/// Native Bedrock/RakNet vertical slices that do not depend on external protocol crates.
+pub mod native;
 /// The packet implementation of RakNet.
 /// This is a lower level implementation responsible for serializing and deserializing packets.
 pub mod protocol;

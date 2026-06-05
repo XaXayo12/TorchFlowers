@@ -28,8 +28,6 @@ async-trait = "0.1"
 axum = { version = "0.8", features = ["macros", "json"] }
 base64 = "0.22"
 aes = "0.9.0-rc.4"
-bedrock = { git = "https://github.com/bedrock-crustaceans/bedrock-rs.git", rev = "c44d5f51a9036a04cc8661f4be02e2cff40c6ab1", default-features = false, features = ["auth", "auth-async", "protocol", "protocol-v898", "protocol-v944", "protocol-v975", "protocol-unknown", "protocol-packet-dyn", "protocol-packet-meta"] }
-bedrock_protocol_core = { git = "https://github.com/bedrock-crustaceans/bedrock-rs.git", rev = "c44d5f51a9036a04cc8661f4be02e2cff40c6ab1" }
 binary-util = "0.3.4"
 bytes = "1.11"
 chrono = { version = "0.4", features = ["serde"] }

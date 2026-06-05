@@ -6,8 +6,8 @@ use torchflower_auth::AuthConfig;
 use torchflower_proto::{Packet, ProtocolVersion};
 
 use crate::{
-    auth::entitlement::EntitlementProvisioner, bedrock::session::BedrockBotSession, config::Config,
-    db::Database, error::EngineError, models::CapabilityStatus,
+    config::Config, db::Database, error::EngineError, models::CapabilityStatus,
+    native_client::NativeBedrockClient,
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -505,7 +505,7 @@ impl BotSessionBuilder {
 }
 
 pub struct BotSession {
-    config: Config,
+    _config: Config,
     db: Database,
     account_id: String,
     server: ServerAddress,
@@ -534,7 +534,7 @@ impl BotSession {
     ) -> Self {
         Self {
             blocks: BlockInteractionController::new(policy.clone(), server.clone()),
-            config,
+            _config: config,
             db,
             account_id,
             server,
@@ -549,37 +549,23 @@ impl BotSession {
         }
     }
 
-    /// Authenticates the account and validates that a Bedrock connection reaches the server.
-    ///
-    /// The current backend uses the proven validation transport while the persistent live
-    /// controller is being separated from that validation loop.
+    /// Validates that the configured Bedrock server responds on the native RakNet ping path.
     pub async fn connect(&mut self) -> BotResult<CapabilityStatus> {
         let status = self.validate_for(Duration::from_secs(30), false).await?;
-        self.connected = status.login && status.spawn;
+        self.connected = status.success;
         self.last_status = Some(status.clone());
         Ok(status)
     }
 
-    /// Runs the existing real-server validation scenario through the public session wrapper.
+    /// Runs the native Bedrock server reachability validation through the public session wrapper.
     pub async fn validate_for(
         &self,
         duration: Duration,
-        run_gameplay_validation: bool,
+        _run_gameplay_validation: bool,
     ) -> BotResult<CapabilityStatus> {
         self.db.get_account(&self.account_id).await?;
-        let provisioned = EntitlementProvisioner::new(&self.config, self.db.clone())
-            .provision(&self.account_id)
-            .await?;
-        Ok(BedrockBotSession::new(self.db.clone())
-            .validate_real_server_for(
-                &self.account_id,
-                None,
-                &self.server.host,
-                self.server.port,
-                &provisioned,
-                run_gameplay_validation,
-                duration,
-            )
+        Ok(NativeBedrockClient::default()
+            .validate_ping(&self.server.host, self.server.port, duration)
             .await?)
     }
 
@@ -771,6 +757,10 @@ impl BotSession {
 mod tests {
     use super::*;
     use crate::config::MicrosoftAuthFlow;
+    use torchflower_net::{
+        native::NativePingServer,
+        protocol::mcpe::motd::{Gamemode, Motd},
+    };
 
     #[test]
     fn automation_policy_requires_allowed_host() {
@@ -866,5 +856,66 @@ mod tests {
             scheduler.pop_next(),
             Some(BotAction::MoveTo(Position::new(1.0, 64.0, 1.0)))
         );
+    }
+
+    #[tokio::test]
+    async fn bot_session_validation_uses_native_ping_layer() {
+        let db = crate::db::Database::connect("sqlite::memory:")
+            .await
+            .unwrap();
+        db.migrate().await.unwrap();
+        let account_id = db.upsert_account_email("native@example.com").await.unwrap();
+        let motd = Motd {
+            edition: "MCPE".to_string(),
+            name: "TorchFlower Native Session Test".to_string(),
+            sub_name: "native".to_string(),
+            protocol: 975,
+            version: "1.21.130".to_string(),
+            player_count: 1,
+            player_max: 20,
+            gamemode: Gamemode::Survival,
+            server_guid: 7007,
+            port: Some("19132".to_string()),
+            ipv6_port: Some("19133".to_string()),
+            nintendo_limited: Some(false),
+        };
+        let server = NativePingServer::bind("127.0.0.1:0".parse().unwrap(), motd)
+            .await
+            .unwrap();
+        let addr = server.local_addr().unwrap();
+        let server_task = tokio::spawn(async move { server.serve_once().await.unwrap() });
+        let config = Config {
+            microsoft_client_id: "client".to_string(),
+            microsoft_auth_flow: MicrosoftAuthFlow::Live,
+            token_encryption_key: [3u8; 32],
+            database_url: "sqlite::memory:".to_string(),
+            rust_engine_bind: "127.0.0.1:0".to_string(),
+            api_key: Some("key".to_string()),
+            dev_allow_unauth_api: false,
+            cors_allowed_origins: vec!["http://localhost:3000".to_string()],
+            allowed_server_hosts: vec!["127.0.0.1".to_string()],
+            dangerous_log_auth_bodies: false,
+        };
+        let session = BotSession::new(
+            config,
+            db,
+            account_id,
+            ServerAddress::new("127.0.0.1", addr.port()),
+            AutomationPolicy::allow_for_hosts(["127.0.0.1"]),
+        );
+
+        let status = session
+            .validate_for(Duration::from_secs(30), false)
+            .await
+            .unwrap();
+        let _ = server_task.await.unwrap();
+
+        assert!(status.success);
+        assert!(status.keepalive);
+        assert!(!status.login);
+        assert!(status
+            .optional_capabilities_missing
+            .iter()
+            .any(|item| item == "server_name=TorchFlower Native Session Test"));
     }
 }
