@@ -3065,8 +3065,7 @@ fn read_subchunk_runtime_layer(
         vec![runtime_id as u32]
     } else {
         let palette_len = read_trace_var_i32(payload, offset)
-            .ok_or_else(|| "missing runtime palette length".to_string())?
-            as i32;
+            .ok_or_else(|| "missing runtime palette length".to_string())?;
         if palette_len == 0 || palette_len > 4096 {
             return Err(format!("invalid runtime palette length {palette_len}"));
         }
