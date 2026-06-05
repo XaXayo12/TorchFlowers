@@ -1,22 +1,22 @@
 use std::net::SocketAddr;
 
 use axum::{
-    Json, Router,
-    body::{Body, to_bytes},
+    body::{to_bytes, Body},
     http::{
-        Request, StatusCode,
         header::{
             ACCESS_CONTROL_ALLOW_ORIGIN, ACCESS_CONTROL_REQUEST_METHOD, AUTHORIZATION, ORIGIN,
         },
+        Request, StatusCode,
     },
     response::IntoResponse,
     routing::post,
+    Json, Router,
 };
-use base64::{Engine as _, engine::general_purpose::STANDARD};
-use serde_json::{Value, json};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
+use serde_json::{json, Value};
 use torchflower_engine::{
     api::build_router,
-    config::{Config, MicrosoftAuthFlow, parse_token_encryption_key},
+    config::{parse_token_encryption_key, Config, MicrosoftAuthFlow},
     db::Database,
     diagnostics::Diagnostics,
     error::EngineError,
@@ -180,23 +180,19 @@ async fn cors_only_allows_configured_origins() {
         )
         .await
         .unwrap();
-    assert!(
-        rejected
-            .headers()
-            .get(ACCESS_CONTROL_ALLOW_ORIGIN)
-            .is_none()
-    );
+    assert!(rejected
+        .headers()
+        .get(ACCESS_CONTROL_ALLOW_ORIGIN)
+        .is_none());
 }
 
 #[test]
 fn unsafe_unauthenticated_api_is_rejected_on_non_loopback_bind() {
     let mut config = test_config(None);
     config.dev_allow_unauth_api = true;
-    assert!(
-        config
-            .validate_api_security("0.0.0.0:9080".parse::<SocketAddr>().unwrap())
-            .is_err()
-    );
+    assert!(config
+        .validate_api_security("0.0.0.0:9080".parse::<SocketAddr>().unwrap())
+        .is_err());
 }
 
 #[test]

@@ -4,7 +4,7 @@ use torchflower_engine::{
         xsts::{BEDROCK_RELYING_PARTY, PLAYFAB_RELYING_PARTY},
     },
     config::{
-        BEDROCK_PROTOCOL_LIVE_CLIENT_ID, BEDROCK_PROTOCOL_LIVE_SCOPE, MSAL_SCOPE, MicrosoftAuthFlow,
+        MicrosoftAuthFlow, BEDROCK_PROTOCOL_LIVE_CLIENT_ID, BEDROCK_PROTOCOL_LIVE_SCOPE, MSAL_SCOPE,
     },
     db::Database,
 };
@@ -31,8 +31,8 @@ fn microsoft_auth_defaults_to_bedrock_protocol_live_flow() {
 
 #[test]
 fn jwt_chain_generator_creates_connection_request() {
-    use base64::Engine as _;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine as _;
 
     // Build a fake chain[0] JWT header with x5u set to a dummy Mojang root CA key.
     let fake_mojang_key = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==";
@@ -109,11 +109,9 @@ fn jwt_chain_generator_creates_connection_request() {
     let fingerprint_playfab_id = fingerprint.playfab_id.as_deref().unwrap();
     assert_eq!(fingerprint_playfab_id.len(), 16);
     assert_ne!(fingerprint_playfab_id, "test-playfab-id");
-    assert!(
-        fingerprint_playfab_id
-            .chars()
-            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
-    );
+    assert!(fingerprint_playfab_id
+        .chars()
+        .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()));
     assert_eq!(fingerprint.device_model.as_deref(), Some("PrismarineJS"));
     assert_eq!(fingerprint.device_os, Some(7));
     assert_eq!(fingerprint.persona_skin, Some(true));
@@ -127,13 +125,11 @@ fn jwt_chain_generator_creates_connection_request() {
         fingerprint.skin_geometry_engine_version.as_deref(),
         Some("1.14.0")
     );
-    assert!(
-        fingerprint
-            .skin_resource_patch_decoded
-            .as_deref()
-            .unwrap()
-            .contains("geometry.persona")
-    );
+    assert!(fingerprint
+        .skin_resource_patch_decoded
+        .as_deref()
+        .unwrap()
+        .contains("geometry.persona"));
     let auth_info_len = u32::from_le_bytes(request[0..4].try_into().unwrap()) as usize;
     let auth_info_json = String::from_utf8(request[4..4 + auth_info_len].to_vec()).unwrap();
     assert!(

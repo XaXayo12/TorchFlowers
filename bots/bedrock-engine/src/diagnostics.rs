@@ -1,6 +1,6 @@
-use reqwest::{Method, StatusCode, header::HeaderMap};
+use reqwest::{header::HeaderMap, Method, StatusCode};
 use serde::de::DeserializeOwned;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::{
     db::{Database, NewLogEntry},

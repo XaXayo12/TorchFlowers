@@ -1,19 +1,19 @@
 use base64::{
-    Engine as _,
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+    Engine as _,
 };
 use bedrock::{
     network::{codec, compression::Compression, encryption::Encryption},
     protocol::{
-        ProtoVersion, Unknown, V898 as BedrockProto,
         unknown::packets::RequestNetworkSettingsPacket as UnknownRequestNetworkSettingsPacket,
         v662::{enums::PacketCompressionAlgorithm, packets::ClientToServerHandshakePacket},
+        ProtoVersion, Unknown, V898 as BedrockProto,
     },
 };
-use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
+use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use p384::{
-    PublicKey, SecretKey,
     pkcs8::{DecodePrivateKey, DecodePublicKey},
+    PublicKey, SecretKey,
 };
 use serde::Deserialize;
 use std::{
@@ -23,7 +23,7 @@ use std::{
 };
 
 use crate::{
-    auth::{ProvisionedBedrockSession, minecraft::BedrockJwtChain, minecraft::MinecraftAuth},
+    auth::{minecraft::BedrockJwtChain, minecraft::MinecraftAuth, ProvisionedBedrockSession},
     bedrock::transport::RaknetClientAdapter,
     error::{EngineError, EngineResult},
 };
@@ -3344,19 +3344,15 @@ mod tests {
 
         let candidates = loose_text_candidates(&packet, payload_offset);
         assert!(candidates.iter().any(|candidate| candidate == "rtp"));
-        assert!(
-            candidates
-                .iter()
-                .any(|candidate| candidate == "Unknown command: rtp is not available here")
-        );
+        assert!(candidates
+            .iter()
+            .any(|candidate| candidate == "Unknown command: rtp is not available here"));
 
         let prioritized = prioritize_command_text_candidates(&candidates);
         assert!(prioritized.iter().any(|candidate| candidate == "rtp"));
-        assert!(
-            prioritized
-                .iter()
-                .any(|candidate| candidate.contains("Unknown command"))
-        );
+        assert!(prioritized
+            .iter()
+            .any(|candidate| candidate.contains("Unknown command")));
     }
 
     #[test]

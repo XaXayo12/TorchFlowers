@@ -1,13 +1,13 @@
-use base64::{Engine as _, engine::general_purpose::STANDARD};
+use base64::{engine::general_purpose::STANDARD, Engine as _};
 use chrono::Utc;
 use p256::{
-    EncodedPoint,
-    ecdsa::{Signature, SigningKey, signature::Signer},
+    ecdsa::{signature::Signer, Signature, SigningKey},
     elliptic_curve::rand_core::OsRng,
+    EncodedPoint,
 };
 use reqwest::Method;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::{

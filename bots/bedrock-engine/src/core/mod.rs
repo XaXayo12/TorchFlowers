@@ -644,11 +644,9 @@ mod tests {
     #[test]
     fn automation_policy_requires_allowed_host() {
         let policy = AutomationPolicy::allow_for_hosts(["example.org"]);
-        assert!(
-            policy
-                .require_gameplay_action("example.org", "break_block")
-                .is_ok()
-        );
+        assert!(policy
+            .require_gameplay_action("example.org", "break_block")
+            .is_ok());
         assert!(matches!(
             policy.require_gameplay_action("other.org", "break_block"),
             Err(BotError::HostNotAllowed(_))

@@ -1,6 +1,12 @@
-# ⚠️ THIS IS STILL UNDER DEVELOPEMENT!!!
-
 # TorchFlower Bedrock Engine
+
+[![Crates.io](https://img.shields.io/badge/crates.io-unpublished-lightgrey)](https://crates.io/crates/torchflower)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+[![CI](https://github.com/Osamu-GWAD/TorchFlower/actions/workflows/ci.yml/badge.svg)](.github/workflows/)
+[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/placeholder)
+
+> **Status:** Early alpha — `v0.1.0`. Expect breaking changes between minor versions.
+> See [CHANGELOG.md](./CHANGELOG.md) for what has changed.
 
 TorchFlower is a Rust Minecraft Bedrock client engine for authenticated real-server validation and bot-session experiments. The repository is intentionally Rust-only: authentication, entitlement provisioning, Bedrock networking, persistence, diagnostics, validation, and the public bot API all live in the engine.
 

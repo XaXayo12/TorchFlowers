@@ -1,8 +1,8 @@
 use std::{path::Path, str::FromStr};
 
 use sqlx::{
-    Row, SqlitePool,
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    Row, SqlitePool,
 };
 use tokio::fs;
 use uuid::Uuid;

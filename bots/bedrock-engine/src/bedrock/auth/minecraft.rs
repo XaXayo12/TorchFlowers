@@ -1,9 +1,9 @@
 use base64::{
-    Engine as _,
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
+    Engine as _,
 };
 use chrono::Utc;
-use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use p384::{
     ecdsa::SigningKey,
     elliptic_curve::Generate,
@@ -11,7 +11,7 @@ use p384::{
 };
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::{

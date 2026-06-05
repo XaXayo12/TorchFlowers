@@ -1,6 +1,6 @@
 use reqwest::Method;
 use serde::Deserialize;
-use serde_json::{Map, Value, json};
+use serde_json::{json, Map, Value};
 
 use crate::{
     auth::{XboxIdentity, XstsToken},

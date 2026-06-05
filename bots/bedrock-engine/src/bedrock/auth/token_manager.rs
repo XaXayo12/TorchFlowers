@@ -1,8 +1,8 @@
 use aes_gcm::{
+    aead::{rand_core::RngCore, Aead, KeyInit, OsRng},
     Aes256Gcm, Nonce,
-    aead::{Aead, KeyInit, OsRng, rand_core::RngCore},
 };
-use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use chrono::{DateTime, Duration, Utc};
 use serde::Deserialize;
 

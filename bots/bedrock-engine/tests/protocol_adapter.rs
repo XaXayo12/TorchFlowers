@@ -1,7 +1,6 @@
 use bedrock::{
     network::codec::{decode_packets, encode_packets},
     protocol::{
-        ProtoVersion, Unknown, V975 as BedrockProto,
         unknown::packets::RequestNetworkSettingsPacket,
         v662::{
             enums::{
@@ -20,12 +19,13 @@ use bedrock::{
         v766::packets::{ClientPlayMode, PlayerAuthInputPacket},
         v898::packets::TextPacket,
         v924::enums::TextPacketType,
+        ProtoVersion, Unknown, V975 as BedrockProto,
     },
 };
-use jsonwebtoken::{Algorithm, EncodingKey, Header, encode};
+use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use p384::{
-    PublicKey, SecretKey,
     pkcs8::{DecodePrivateKey, DecodePublicKey},
+    PublicKey, SecretKey,
 };
 use torchflower_engine::{
     auth::minecraft::MinecraftAuth, bedrock::protocol_adapter::BedrockProtocolAdapter,

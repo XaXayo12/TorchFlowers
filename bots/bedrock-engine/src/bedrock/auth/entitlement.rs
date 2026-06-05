@@ -1,16 +1,16 @@
 use reqwest::Method;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::{
     auth::{
-        ProvisionedBedrockSession,
         microsoft::MicrosoftTokenResponse,
         minecraft::MinecraftAuth,
         playfab::PlayFabAuth,
         token_manager::TokenManager,
         xbox::XboxAuth,
-        xsts::{BEDROCK_RELYING_PARTY, PLAYFAB_RELYING_PARTY, XstsAuth},
+        xsts::{XstsAuth, BEDROCK_RELYING_PARTY, PLAYFAB_RELYING_PARTY},
+        ProvisionedBedrockSession,
     },
     config::Config,
     db::{Database, NewLogEntry},

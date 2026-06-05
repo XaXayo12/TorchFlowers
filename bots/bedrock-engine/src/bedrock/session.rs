@@ -5,7 +5,6 @@ use std::{
 };
 
 use bedrock::protocol::{
-    V898 as BedrockProto,
     v662::{
         enums::{
             ComplexInventoryTransactionType, ContainerID, PlayStatus, PlayerActionType,
@@ -23,6 +22,7 @@ use bedrock::protocol::{
         enums::TextPacketType,
         packets::{AnimatePacket, AnimatePacketAction, SwingSource, TextPacket},
     },
+    V898 as BedrockProto,
 };
 use bedrock_protocol_core::ProtoCodec;
 use chrono::Utc;
@@ -120,13 +120,15 @@ fn block_action_input_flags() -> u128 {
 }
 
 fn movement_start_delay_duration() -> Duration {
-    if let Ok(value) = env::var("BEDROCK_MOVEMENT_START_DELAY_MS")
-        && let Ok(ms) = value.trim().parse::<u64>()
+    if let Some(ms) = env::var("BEDROCK_MOVEMENT_START_DELAY_MS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
     {
         return Duration::from_millis(ms);
     }
-    if let Ok(value) = env::var("BEDROCK_MOVEMENT_START_DELAY_SECONDS")
-        && let Ok(seconds) = value.trim().parse::<u64>()
+    if let Some(seconds) = env::var("BEDROCK_MOVEMENT_START_DELAY_SECONDS")
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
     {
         return Duration::from_secs(seconds);
     }
@@ -2615,40 +2617,40 @@ impl BedrockBotSession {
                                 )
                                 .await?;
                         }
-                        if status.player_spawn
-                            && !movement_init_sent
-                            && let Some(runtime_id) =
+                        if status.player_spawn && !movement_init_sent {
+                            if let Some(runtime_id) =
                                 movement_validation.as_ref().map(|m| m.runtime_id.clone())
-                        {
-                            self.send_movement_initialization(
-                                account_id,
-                                bot_id,
-                                &mut conn,
-                                runtime_id,
-                                started,
-                                "typed_play_status_player_spawn",
-                            )
-                            .await?;
-                            movement_init_sent = true;
-                            let (deadline, delay) = movement_start_deadline();
-                            movement_start_not_before = deadline;
-                            movement_start_delay_reported = false;
-                            eprintln!(
-                                "[MOVEMENT_INIT] post_spawn_movement_delay_ms={} source=typed_play_status_player_spawn",
-                                delay.as_millis()
-                            );
-                            self.drive_movement_validation_when_ready(
-                                account_id,
-                                bot_id,
-                                session,
-                                &mut conn,
-                                &mut movement_validation,
-                                &mut status,
-                                send_chat_probe,
-                                movement_start_not_before,
-                                &mut movement_start_delay_reported,
-                            )
-                            .await?;
+                            {
+                                self.send_movement_initialization(
+                                    account_id,
+                                    bot_id,
+                                    &mut conn,
+                                    runtime_id,
+                                    started,
+                                    "typed_play_status_player_spawn",
+                                )
+                                .await?;
+                                movement_init_sent = true;
+                                let (deadline, delay) = movement_start_deadline();
+                                movement_start_not_before = deadline;
+                                movement_start_delay_reported = false;
+                                eprintln!(
+                                    "[MOVEMENT_INIT] post_spawn_movement_delay_ms={} source=typed_play_status_player_spawn",
+                                    delay.as_millis()
+                                );
+                                self.drive_movement_validation_when_ready(
+                                    account_id,
+                                    bot_id,
+                                    session,
+                                    &mut conn,
+                                    &mut movement_validation,
+                                    &mut status,
+                                    send_chat_probe,
+                                    movement_start_not_before,
+                                    &mut movement_start_delay_reported,
+                                )
+                                .await?;
+                            }
                         }
                     }
                     BedrockProto::ResourcePacksInfoPacket(_) => {
@@ -3070,39 +3072,40 @@ impl BedrockBotSession {
                                     json!({ "elapsed_seconds": started.elapsed().as_secs(), "source": "raw_observed" }),
                                 )
                                 .await?;
-                            if !movement_init_sent
-                                && let Some(runtime_id) =
+                            if !movement_init_sent {
+                                if let Some(runtime_id) =
                                     movement_validation.as_ref().map(|m| m.runtime_id.clone())
-                            {
-                                self.send_movement_initialization(
-                                    account_id,
-                                    bot_id,
-                                    &mut conn,
-                                    runtime_id,
-                                    started,
-                                    "observed_play_status_player_spawn",
-                                )
-                                .await?;
-                                movement_init_sent = true;
-                                let (deadline, delay) = movement_start_deadline();
-                                movement_start_not_before = deadline;
-                                movement_start_delay_reported = false;
-                                eprintln!(
-                                    "[MOVEMENT_INIT] post_spawn_movement_delay_ms={} source=observed_play_status_player_spawn",
-                                    delay.as_millis()
-                                );
-                                self.drive_movement_validation_when_ready(
-                                    account_id,
-                                    bot_id,
-                                    session,
-                                    &mut conn,
-                                    &mut movement_validation,
-                                    &mut status,
-                                    send_chat_probe,
-                                    movement_start_not_before,
-                                    &mut movement_start_delay_reported,
-                                )
-                                .await?;
+                                {
+                                    self.send_movement_initialization(
+                                        account_id,
+                                        bot_id,
+                                        &mut conn,
+                                        runtime_id,
+                                        started,
+                                        "observed_play_status_player_spawn",
+                                    )
+                                    .await?;
+                                    movement_init_sent = true;
+                                    let (deadline, delay) = movement_start_deadline();
+                                    movement_start_not_before = deadline;
+                                    movement_start_delay_reported = false;
+                                    eprintln!(
+                                        "[MOVEMENT_INIT] post_spawn_movement_delay_ms={} source=observed_play_status_player_spawn",
+                                        delay.as_millis()
+                                    );
+                                    self.drive_movement_validation_when_ready(
+                                        account_id,
+                                        bot_id,
+                                        session,
+                                        &mut conn,
+                                        &mut movement_validation,
+                                        &mut status,
+                                        send_chat_probe,
+                                        movement_start_not_before,
+                                        &mut movement_start_delay_reported,
+                                    )
+                                    .await?;
+                                }
                             }
                         } else {
                             self.diagnostics
@@ -3305,10 +3308,10 @@ impl BedrockBotSession {
                         status.keepalive = true;
                     }
                     ObservedPacket::Text(text) => {
-                        if trace_packets_enabled()
-                            && let Some(text) = text
-                        {
-                            eprintln!("[CHAT_RX_OBSERVED] strings={:?}", text.strings);
+                        if trace_packets_enabled() {
+                            if let Some(text) = text {
+                                eprintln!("[CHAT_RX_OBSERVED] strings={:?}", text.strings);
+                            }
                         }
                         status.chat = true;
                     }
@@ -7334,12 +7337,10 @@ mod tests {
 
         assert_eq!(movement.observed_break_candidate, None);
         assert!(!movement.observed_solid_blocks.contains(&stale_candidate));
-        assert!(
-            !movement
-                .observed_solid_block_runtime_ids
-                .iter()
-                .any(|(target, _)| *target == stale_candidate)
-        );
+        assert!(!movement
+            .observed_solid_block_runtime_ids
+            .iter()
+            .any(|(target, _)| *target == stale_candidate));
     }
 
     #[test]
@@ -7598,11 +7599,9 @@ mod tests {
                 .map(|item| item.runtime_id),
             Some(second.runtime_entity_id)
         );
-        assert!(
-            movement
-                .rejected_item_entity_runtime_ids
-                .contains(&first.runtime_entity_id)
-        );
+        assert!(movement
+            .rejected_item_entity_runtime_ids
+            .contains(&first.runtime_entity_id));
         assert_eq!(movement.pickup_probe_started_at, None);
         assert!(!movement.pickup_failed_reported);
         assert!(!movement.pickup_terminal_failed);
