@@ -1,0 +1,34 @@
+[package]
+name = "torchflower-net"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "RakNet transport, fragmentation, ACK/NACK, and reassembly for TorchFlower."
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/torchflower-net"
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+
+[dependencies]
+binary-util = "0.3.4"
+byteorder = "1.4.3"
+bytes = "1.8"
+futures = "0.3.19"
+futures-executor = "0.3.19"
+rand = "0.8.3"
+thiserror = "2.0"
+tokio = { version = "1.28.2", features = ["full"], optional = true }
+
+[features]
+async_tokio = ["tokio"]
+debug = []
+debug_all = []
+debug_buffers = []
+default = ["async_tokio", "mcpe"]
+mcpe = []
+
+[lints.rust]
+unexpected_cfgs = "allow"

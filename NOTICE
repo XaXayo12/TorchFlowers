@@ -1,0 +1,12 @@
+TorchFlower
+Copyright 2026 TorchFlower Contributors
+
+This product includes software adapted from the rak-rs project
+(https://github.com/bedrock-crustaceans/rak-rs),
+Copyright (c) bedrock-crustaceans contributors,
+licensed under the Apache License, Version 2.0.
+
+This product also uses protocol structures from the bedrock-rs project
+(https://github.com/bedrock-crustaceans/bedrock-rs),
+Copyright (c) bedrock-crustaceans contributors,
+licensed under the Apache License, Version 2.0.

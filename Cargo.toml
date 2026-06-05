@@ -1,6 +1,30 @@
+[package]
+name = "torchflower-workspace"
+version = "0.1.0"
+edition = "2021"
+authors = ["TorchFlower Contributors"]
+license = "Apache-2.0"
+description = "Workspace harness for TorchFlower examples."
+repository = "https://github.com/Osamu-GWAD/TorchFlower"
+homepage = "https://github.com/Osamu-GWAD/TorchFlower"
+documentation = "https://docs.rs/torchflower"
+keywords = ["minecraft", "bedrock", "raknet", "bot", "client"]
+categories = ["game-development", "network-programming"]
+readme = "README.md"
+publish = false
+
 [workspace]
 resolver = "3"
-members = ["bots/bedrock-engine"]
+members = [
+    "crates/torchflower",
+    "crates/torchflower-auth",
+    "crates/torchflower-proto",
+    "crates/torchflower-net",
+    "crates/torchflower-engine",
+    "crates/torchflower-api",
+    "crates/torchflower-level",
+    "crates/torchflower-addon",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -15,5 +39,8 @@ keywords = ["minecraft", "bedrock", "raknet", "bot", "client"]
 categories = ["game-development", "network-programming"]
 readme = "README.md"
 
-[patch.crates-io]
-rak-rs = { path = "vendor/rak-rs" }
+[dependencies]
+anyhow = "1.0"
+chrono = "0.4"
+tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "time"] }
+torchflower = { path = "crates/torchflower", features = ["offline-mode"] }

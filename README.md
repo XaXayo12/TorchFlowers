@@ -1,4 +1,4 @@
-# TorchFlower Bedrock Engine
+# TorchFlower
 
 [![Crates.io](https://img.shields.io/badge/crates.io-unpublished-lightgrey)](https://crates.io/crates/torchflower)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
@@ -8,18 +8,66 @@
 > **Status:** Early alpha — `v0.1.0`. Expect breaking changes between minor versions.
 > See [CHANGELOG.md](./CHANGELOG.md) for what has changed.
 
-TorchFlower is a Rust Minecraft Bedrock client engine for authenticated real-server validation and bot-session experiments. The repository is intentionally Rust-only: authentication, entitlement provisioning, Bedrock networking, persistence, diagnostics, validation, and the public bot API all live in the engine.
+TorchFlower is a Rust-first Minecraft Bedrock bot engine for authenticated sessions, scalable bot orchestration, real-server validation, protocol work, and guarded automation. Unlike a standalone protocol client or protocol crate, TorchFlower packages authentication, RakNet transport, session behavior, REST control, persistence, world utilities, addon helpers, metrics, and safety defaults into one modular workspace while preserving the validated Bedrock login and gameplay pipeline.
 
-## Workspace
+## Quick Start
 
-- Engine crate: `bots/bedrock-engine`
-- Public Rust API: `torchflower_engine::core`
-- SQLite schema: `database/migrations/0001_initial.sql`
-- Local RakNet patch: `vendor/rak-rs`
+```rust
+use torchflower::{AuthConfig, BotBuilder, Event, ProtocolVersion};
+
+# async fn run() -> Result<(), Box<dyn std::error::Error>> {
+let bot = BotBuilder::new()
+    .address("play.example.com", 19132)
+    .protocol_version(ProtocolVersion::V1_21_100)
+    .auth(AuthConfig::device_code())
+    .build()
+    .await?;
+
+bot.run(|ctx, event| {
+    Box::pin(async move {
+        if let Event::Spawned = event {
+            ctx.send_chat("Hello from TorchFlower!").await?;
+        }
+        Ok(())
+    })
+}).await?;
+# Ok(())
+# }
+```
+
+Run the workspace quickstart example:
+
+```powershell
+$env:MINECRAFT_HOST="play.example.com"
+$env:MINECRAFT_PORT="19132"
+cargo run --example quickstart
+```
+
+## Crates
+
+| Crate | Purpose | crates.io |
+|---|---|---|
+| `torchflower` | Facade re-export crate | unpublished |
+| `torchflower-auth` | Storage-agnostic Microsoft, Xbox, PlayFab, entitlement, and Bedrock auth types | unpublished |
+| `torchflower-proto` | Bedrock packet models, form data, protocol versions, and codecs | unpublished |
+| `torchflower-net` | RakNet transport, ACK/NACK, fragmentation, and reassembly | unpublished |
+| `torchflower-engine` | Bot session, persistence, diagnostics, validation, and gameplay actions | unpublished |
+| `torchflower-api` | Authenticated REST API wrapper around the engine | unpublished |
+| `torchflower-level` | Bedrock world-folder and LevelDB key utilities | unpublished |
+| `torchflower-addon` | Addon manifest and `.mcpack`/`.mcaddon` helpers | unpublished |
+
+## Feature Flags
+
+| Feature | Crate | Description |
+|---|---|---|
+| `offline-mode` | `torchflower`, `torchflower-auth` | Enables local/offline auth config for local servers that do not require online-mode authentication. |
+| `level` | `torchflower` | Re-exports `torchflower-level`. |
+| `addon` | `torchflower` | Re-exports `torchflower-addon`. |
+| `console` | `torchflower`, `torchflower-engine` | Enables tokio-console runtime instrumentation. |
 
 ## Authentication
 
-The engine implements the full Bedrock account path:
+The engine implements the complete Bedrock account path:
 
 1. Microsoft device-code OAuth using the Live flow by default
 2. Xbox Live authentication
@@ -30,7 +78,7 @@ The engine implements the full Bedrock account path:
 7. Legacy Bedrock authentication against `https://multiplayer.minecraft.net/authentication`
 8. Bedrock JWT chain generation
 
-Tokens and provisioning state are persisted in SQLite.
+Tokens and provisioning state are persisted by `torchflower-engine`; `torchflower-auth` keeps public auth data structures storage-agnostic.
 
 ## Capabilities
 
@@ -42,18 +90,9 @@ Tokens and provisioning state are persisted in SQLite.
 - DonutSMP-compatible NetworkStackLatency response encoding
 - Server-confirmed block breaking evidence through UpdateBlock observation
 - Guarded block placing after a normal placeable item is confirmed in inventory
-- Public session/controller API for scheduling chat, movement, inventory, interaction, block, respawn, and state-tracking actions
+- Authenticated REST API with exact-origin CORS and safe diagnostics defaults
 
 Server menu, teleport, region-selector, and UI-tool items are rejected as placeable inventory even when their raw item id resembles a block.
-
-## Security Defaults
-
-- `/health` is public; every `/api/*` route requires `TORCHFLOWER_API_KEY`.
-- Unauthenticated API mode is only allowed when `TORCHFLOWER_DEV_ALLOW_UNAUTH_API=true` and the bind address is loopback.
-- CORS allows only exact origins from `TORCHFLOWER_CORS_ALLOWED_ORIGINS`.
-- Direct real-server validation by host requires `TORCHFLOWER_ALLOWED_SERVER_HOSTS`; validation by stored `server_id` remains allowed.
-- Token storage prefers `TOKEN_ENCRYPTION_KEY_B64`, a base64-encoded 32-byte key.
-- Auth HTTP diagnostics do not store request/response bodies unless `TORCHFLOWER_DANGEROUS_LOG_AUTH_BODIES=true`; sensitive fields are still redacted.
 
 ## Configuration
 
@@ -77,62 +116,42 @@ BEDROCK_VALIDATE_DURATION_SECONDS=300
 
 `MICROSOFT_CLIENT_ID` is optional in Live mode. Keep `TOKEN_ENCRYPTION_KEY_B64` stable for the database; changing it makes stored token ciphertext undecryptable.
 
-## Run
+## API Reference
 
-Start the local engine API:
+Full API documentation will be published at `https://docs.rs/torchflower` after the first crates.io release.
 
-```powershell
-cargo run -p torchflower-engine
+## Relationship to bedrock-rs / rak-rs
+
+TorchFlower builds on top of [`rak-rs`](https://github.com/bedrock-crustaceans/rak-rs)
+for RakNet transport. We actively contribute fixes and improvements back
+upstream rather than maintaining a private fork.
+
+Pending or merged upstream contributions from TorchFlower are tracked in
+[docs/upstreaming-bedrock-rs.md](./docs/upstreaming-bedrock-rs.md).
+
+## Performance And Scale
+
+TorchFlower is tuned for maximum concurrent bots with bounded task creation, command-channel back-pressure, configurable auth concurrency, spawn pacing, and reusable packet buffers. Runtime tuning is available through:
+
+```bash
+TORCHFLOWER_WORKERS=4
+TORCHFLOWER_THREAD_STACK_BYTES=2097152
+TORCHFLOWER_MAX_BOTS=100
+TORCHFLOWER_MAX_AUTH_CONCURRENT=3
+TORCHFLOWER_SPAWN_INTERVAL_MS=500
 ```
 
-Run real-server validation:
+Tokio console can be enabled for runtime analysis:
 
-```powershell
-$env:BEDROCK_VALIDATE_ACCOUNT_ID="<account-id>"
-$env:BEDROCK_VALIDATE_SERVER_HOST="<server-host>"
-$env:BEDROCK_VALIDATE_SERVER_PORT="19132"
-$env:BEDROCK_VALIDATE_DURATION_SECONDS="90"
-cargo run -p torchflower-engine -- validate-real-server
+```bash
+TORCHFLOWER_WORKERS=4 cargo run -p torchflower-engine --features console
+tokio-console
 ```
 
-Expected successful gameplay output includes:
+## Contributing
 
-- `remained_connected=true`
-- `disconnect_reason=null`
-- `block_breaking=true`
-- `block_placing=true`
-- `gameplay_actions=true`
-- `missing_capabilities=[]`
+See [CONTRIBUTING.md](./CONTRIBUTING.md). Join the placeholder Discord at [discord.gg/placeholder](https://discord.gg/placeholder); replace this link with the project server before public release.
 
-If block placing fails, inspect `[GAMEPLAY_PICKUP]` and `[GAMEPLAY_INVENTORY]` lines. Normal failures distinguish missing drops from rejected server UI items.
+## License
 
-## Documentation
-
-- `docs/architecture.md`
-- `docs/security.md`
-- `docs/protocol-compatibility.md`
-- `docs/testing.md`
-- `docs/upstreaming-bedrock-rs.md`
-- `docs/api.md`
-
-## Examples
-
-Examples live under `bots/bedrock-engine/examples` and use environment variables instead of hardcoded secrets:
-
-- `login.rs`
-- `connect.rs`
-- `chat.rs`
-- `move_to_block.rs`
-- `break_and_pickup.rs`
-- `place_block.rs`
-- `multi_bot_supervisor.rs`
-- `local_api_with_auth.rs`
-
-## Verification
-
-```powershell
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-cargo test --workspace --all-features
-cargo build -p torchflower-engine
-```
+Licensed under the [Apache License, Version 2.0](./LICENSE).

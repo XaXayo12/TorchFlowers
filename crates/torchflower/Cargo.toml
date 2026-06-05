@@ -1,0 +1,28 @@
+[package]
+name = "torchflower"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Facade crate for TorchFlower Minecraft Bedrock bot client libraries."
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/torchflower"
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+
+[dependencies]
+torchflower-auth = { version = "0.1.0", path = "../torchflower-auth" }
+torchflower-proto = { version = "0.1.0", path = "../torchflower-proto" }
+torchflower-net = { version = "0.1.0", path = "../torchflower-net" }
+torchflower-engine = { version = "0.1.0", path = "../torchflower-engine" }
+torchflower-level = { version = "0.1.0", path = "../torchflower-level", optional = true }
+torchflower-addon = { version = "0.1.0", path = "../torchflower-addon", optional = true }
+
+[features]
+default = []
+level = ["torchflower-level"]
+addon = ["torchflower-addon"]
+offline-mode = ["torchflower-auth/offline-mode"]
+console = ["torchflower-engine/console"]

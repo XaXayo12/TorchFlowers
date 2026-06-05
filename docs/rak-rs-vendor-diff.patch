@@ -1,0 +1,20 @@
+diff --git a/vendor/rak-rs b/crates/torchflower-net
+similarity index documented
+rename from vendor/rak-rs
+rename to crates/torchflower-net
+
+This file records the release-hygiene diff at a high level.
+
+The old `vendor/rak-rs` tree was removed. The remaining transport code now
+lives in `crates/torchflower-net` as TorchFlower's public wrapper crate with:
+
+- package metadata renamed to `torchflower-net`;
+- public `Connection` wrapper returning `NetError`;
+- `adapter.rs` for TorchFlower-specific timeout/handshake policy;
+- server module retained so the moved transport crate remains internally
+  complete and existing tests keep compiling;
+- no root `[patch.crates-io]` override for `rak-rs`.
+
+Exact upstream hunk comparison still needs to be generated against the current
+`bedrock-crustaceans/rak-rs` main branch before upstream PRs are opened.
+Network-restricted CI should not depend on that comparison.

@@ -1,14 +1,15 @@
-name: ci
+name: release
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    tags:
+      - "v*"
 
 jobs:
-  rust:
+  release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -18,9 +19,11 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
       - run: cargo test --workspace --all-features
-      - run: cargo install cargo-audit --locked
-      - run: cargo audit
       - run: cargo install cargo-deny --locked
       - run: cargo deny check
       - run: cargo doc --workspace --no-deps
       - run: cargo package --dry-run -p torchflower
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body_path: CHANGELOG.md

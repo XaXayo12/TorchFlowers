@@ -7,8 +7,6 @@ tmp/
 scratch/
 MyRandomTest/
 server/
-!vendor/rak-rs/src/server/
-!vendor/rak-rs/src/server/**
 shared/
 *.log
 full*.log

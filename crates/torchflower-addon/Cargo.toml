@@ -1,0 +1,20 @@
+[package]
+name = "torchflower-addon"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Minecraft Bedrock addon manifest and pack archive utilities."
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/torchflower-addon"
+keywords.workspace = true
+categories.workspace = true
+readme = "README.md"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+uuid = { version = "1.11", features = ["serde", "v4"] }
+zip = { version = "2.2", default-features = false, features = ["deflate"] }

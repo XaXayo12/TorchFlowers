@@ -1,0 +1,10 @@
+diff --git a/src/client b/src/client
+--- a/src/client
++++ b/src/client
+@@
++Placeholder patch.
++
++TorchFlower carries validated RakNet client stability behavior in
++`crates/torchflower-net`. Before opening an upstream PR, regenerate this patch
++against the latest `bedrock-crustaceans/rak-rs` main branch and include only
++general-purpose handshake, fragmentation, ACK/NACK, resend, and queue fixes.

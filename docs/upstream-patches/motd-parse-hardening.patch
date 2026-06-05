@@ -1,0 +1,9 @@
+diff --git a/src/protocol/mcpe/motd.rs b/src/protocol/mcpe/motd.rs
+--- a/src/protocol/mcpe/motd.rs
++++ b/src/protocol/mcpe/motd.rs
+@@
++Placeholder patch.
++
++Regenerate against upstream `rak-rs` before PR. The intended change is to
++replace panic-prone numeric parsing in MOTD handling with fallible parsing that
++returns a typed error for malformed or non-standard MOTD fields.
