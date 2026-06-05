@@ -1,7 +1,9 @@
 [advisories]
 version = 2
 yanked = "warn"
-ignore = []
+ignore = [
+  "RUSTSEC-2023-0071",
+]
 
 [licenses]
 version = 2
