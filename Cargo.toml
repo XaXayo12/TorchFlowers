@@ -43,4 +43,4 @@ readme = "README.md"
 anyhow = "1.0"
 chrono = "0.4"
 tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "time"] }
-torchflower = { path = "crates/torchflower", features = ["offline-mode"] }
+torchflower = { version = "0.1.0", path = "crates/torchflower", features = ["offline-mode"] }

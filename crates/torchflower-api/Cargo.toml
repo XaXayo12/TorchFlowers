@@ -14,4 +14,4 @@ readme = "README.md"
 
 [dependencies]
 anyhow = "1.0"
-torchflower-engine = { path = "../torchflower-engine" }
+torchflower-engine = { version = "0.1.0", path = "../torchflower-engine" }
