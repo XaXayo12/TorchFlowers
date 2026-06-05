@@ -114,13 +114,11 @@ pub mod error;
 /// The packet implementation of RakNet.
 /// This is a lower level implementation responsible for serializing and deserializing packets.
 pub mod protocol;
-/// The server implementation of RakNet, allowing you to create a RakNet server.
-pub mod server;
+// Server implementation of RakNet was removed.
 /// Utilties for RakNet, like epoch time.
 pub mod util;
 
 pub use protocol::mcpe::{self, motd::Motd};
-pub use server::Listener;
 
 /// An internal module for notifying the connection of state updates.
 pub(crate) mod notify;
