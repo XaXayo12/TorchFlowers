@@ -188,3 +188,69 @@ pub fn from_address_token(remote: String) -> SocketAddr {
 pub async fn sleep(duration: std::time::Duration) {
     async_sleep(duration).await;
 }
+
+/// A helper enum that allows passing in a `SocketAddr` or a string representation to resolve to a socket address.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PossiblySocketAddr<'a> {
+    SocketAddr(SocketAddr),
+    Str(&'a str),
+    String(String),
+    ActuallyNot,
+}
+
+impl PossiblySocketAddr<'_> {
+    pub fn to_socket_addr(self) -> Option<SocketAddr> {
+        match self {
+            PossiblySocketAddr::SocketAddr(addr) => Some(addr),
+            PossiblySocketAddr::Str(addr) => Some(addr.parse::<SocketAddr>().unwrap()),
+            PossiblySocketAddr::String(addr) => {
+                if let Ok(addr) = addr.parse::<SocketAddr>() {
+                    Some(addr)
+                } else {
+                    if let Ok(mut addr) = addr.to_socket_addrs() {
+                        addr.next()
+                    } else {
+                        None
+                    }
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
+impl From<&str> for PossiblySocketAddr<'_> {
+    fn from(s: &str) -> Self {
+        PossiblySocketAddr::String(s.to_string())
+    }
+}
+
+impl From<String> for PossiblySocketAddr<'_> {
+    fn from(s: String) -> Self {
+        PossiblySocketAddr::String(s)
+    }
+}
+
+impl From<SocketAddr> for PossiblySocketAddr<'_> {
+    fn from(s: SocketAddr) -> Self {
+        PossiblySocketAddr::SocketAddr(s)
+    }
+}
+
+impl std::fmt::Display for PossiblySocketAddr<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PossiblySocketAddr::SocketAddr(addr) => write!(f, "{}", addr),
+            PossiblySocketAddr::Str(addr) => write!(f, "{}", addr),
+            PossiblySocketAddr::String(addr) => write!(f, "{}", addr),
+            PossiblySocketAddr::ActuallyNot => write!(f, "Not a valid address!"),
+        }
+    }
+}
+
+pub fn current_epoch() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as u64
+}

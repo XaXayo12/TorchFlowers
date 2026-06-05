@@ -115,6 +115,10 @@ pub mod error;
 /// This is a lower level implementation responsible for serializing and deserializing packets.
 pub mod protocol;
 // Server implementation of RakNet was removed.
+/// Re-exports server-related types and functions.
+pub mod server {
+    pub use crate::util::{current_epoch, PossiblySocketAddr};
+}
 /// Utilties for RakNet, like epoch time.
 pub mod util;
 
