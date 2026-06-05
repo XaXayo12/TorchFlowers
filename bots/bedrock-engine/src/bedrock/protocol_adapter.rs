@@ -100,6 +100,10 @@ pub struct ObservedStartGame {
     pub runtime_id: u64,
     pub position: (f32, f32, f32),
     pub rotation: (f32, f32),
+    pub disable_player_interactions: Option<bool>,
+    pub server_authoritative_block_breaking: Option<bool>,
+    pub block_network_ids_are_hashes: Option<bool>,
+    pub block_property_count: Option<u32>,
 }
 
 #[derive(Debug, Clone)]
@@ -947,11 +951,120 @@ fn read_start_game_observation(packet: &[u8], payload_offset: usize) -> Option<O
     read_trace_var_u32(packet, &mut offset)?;
     let position = read_trace_vec3f(packet, &mut offset).ok()?;
     let rotation = read_trace_vec2f(packet, &mut offset).ok()?;
+    let policy = read_start_game_policy_observation(packet, payload_offset);
     Some(ObservedStartGame {
         entity_id,
         runtime_id,
         position,
         rotation,
+        disable_player_interactions: policy
+            .as_ref()
+            .map(|policy| policy.disable_player_interactions),
+        server_authoritative_block_breaking: policy
+            .as_ref()
+            .map(|policy| policy.server_authoritative_block_breaking),
+        block_network_ids_are_hashes: policy
+            .as_ref()
+            .map(|policy| policy.block_network_ids_are_hashes),
+        block_property_count: policy.map(|policy| policy.block_property_count),
+    })
+}
+
+#[derive(Debug, Clone)]
+struct ObservedStartGamePolicy {
+    disable_player_interactions: bool,
+    server_authoritative_block_breaking: bool,
+    block_network_ids_are_hashes: bool,
+    block_property_count: u32,
+}
+
+fn read_start_game_policy_observation(
+    packet: &[u8],
+    payload_offset: usize,
+) -> Option<ObservedStartGamePolicy> {
+    let mut cursor = StartGamePolicyCursor::new(packet, payload_offset);
+    cursor.zigzag64()?;
+    cursor.var_u64()?;
+    cursor.zigzag32()?;
+    cursor.skip(12)?;
+    cursor.skip(8)?;
+    cursor.skip(8)?;
+    cursor.skip(2)?;
+    cursor.string()?;
+    cursor.zigzag32()?;
+    cursor.zigzag32()?;
+    cursor.zigzag32()?;
+    cursor.bool()?;
+    cursor.zigzag32()?;
+    cursor.block_coordinates()?;
+    cursor.bool()?;
+    cursor.zigzag32()?;
+    cursor.bool()?;
+    cursor.bool()?;
+    cursor.zigzag32()?;
+    cursor.zigzag32()?;
+    cursor.bool()?;
+    cursor.string()?;
+    cursor.skip(4)?;
+    cursor.skip(4)?;
+    cursor.bool()?;
+    cursor.bool()?;
+    cursor.bool()?;
+    cursor.var_u32()?;
+    cursor.var_u32()?;
+    cursor.bool()?;
+    cursor.bool()?;
+    cursor.gamerules()?;
+    cursor.experiments()?;
+    cursor.bool()?;
+    cursor.bool()?;
+    cursor.bool()?;
+    cursor.var_u32()?;
+    cursor.skip(4)?;
+    cursor.bool()?;
+    cursor.bool()?;
+    cursor.bool()?;
+    cursor.bool()?;
+    cursor.bool()?;
+    cursor.bool()?;
+    cursor.bool()?;
+    cursor.bool()?;
+    cursor.bool()?;
+    cursor.bool()?;
+    cursor.string()?;
+    cursor.skip(4)?;
+    cursor.skip(4)?;
+    cursor.bool()?;
+    cursor.education_shared_resource_uri()?;
+    cursor.bool()?;
+    cursor.u8()?;
+    let disable_player_interactions = cursor.bool()?;
+    cursor.string()?;
+    cursor.string()?;
+    cursor.string()?;
+    cursor.string()?;
+    cursor.string()?;
+    cursor.string()?;
+    cursor.string()?;
+    cursor.bool()?;
+    cursor.zigzag32()?;
+    let server_authoritative_block_breaking = cursor.bool()?;
+    cursor.skip(8)?;
+    cursor.zigzag32()?;
+    let block_property_count = cursor.block_properties()?;
+    cursor.string()?;
+    cursor.bool()?;
+    cursor.string()?;
+    cursor.nbt()?;
+    cursor.skip(8)?;
+    cursor.skip(16)?;
+    cursor.bool()?;
+    let block_network_ids_are_hashes = cursor.bool()?;
+    Some(ObservedStartGamePolicy {
+        disable_player_interactions,
+        server_authoritative_block_breaking,
+        block_network_ids_are_hashes,
+        block_property_count,
     })
 }
 
@@ -1568,6 +1681,128 @@ fn trace_start_game_packet(packet: &[u8], payload_offset: usize) {
             "[STARTGAME_DECODE] trailing_bytes={}",
             hex_dump(&cursor.packet[cursor.offset..cursor.packet.len().min(cursor.offset + 64)])
         );
+    }
+}
+
+struct StartGamePolicyCursor<'a> {
+    packet: &'a [u8],
+    offset: usize,
+}
+
+impl<'a> StartGamePolicyCursor<'a> {
+    fn new(packet: &'a [u8], offset: usize) -> Self {
+        Self { packet, offset }
+    }
+
+    fn skip(&mut self, len: usize) -> Option<()> {
+        let end = self.offset.checked_add(len)?;
+        if end > self.packet.len() {
+            return None;
+        }
+        self.offset = end;
+        Some(())
+    }
+
+    fn u8(&mut self) -> Option<u8> {
+        let value = *self.packet.get(self.offset)?;
+        self.offset += 1;
+        Some(value)
+    }
+
+    fn bool(&mut self) -> Option<bool> {
+        Some(self.u8()? != 0)
+    }
+
+    fn var_u32(&mut self) -> Option<u32> {
+        read_trace_var_u32(self.packet, &mut self.offset)
+    }
+
+    fn var_u64(&mut self) -> Option<u64> {
+        read_trace_var_u64(self.packet, &mut self.offset)
+    }
+
+    fn zigzag32(&mut self) -> Option<i32> {
+        self.var_u32()
+            .map(|value| ((value >> 1) as i32) ^ (-((value & 1) as i32)))
+    }
+
+    fn zigzag64(&mut self) -> Option<i64> {
+        self.var_u64()
+            .map(|value| ((value >> 1) as i64) ^ (-((value & 1) as i64)))
+    }
+
+    fn string(&mut self) -> Option<()> {
+        let len = self.var_u32()? as usize;
+        self.skip(len)
+    }
+
+    fn block_coordinates(&mut self) -> Option<()> {
+        self.zigzag32()?;
+        self.var_u32()?;
+        self.var_u32()?;
+        Some(())
+    }
+
+    fn gamerules(&mut self) -> Option<()> {
+        let count = self.var_u32()?;
+        for _ in 0..count {
+            self.string()?;
+            self.bool()?;
+            let rule_type = self.var_u32()?;
+            match rule_type {
+                1 => {
+                    self.bool()?;
+                }
+                2 => {
+                    self.var_u32()?;
+                }
+                3 => {
+                    self.skip(4)?;
+                }
+                _ => return None,
+            }
+        }
+        Some(())
+    }
+
+    fn experiments(&mut self) -> Option<()> {
+        let count = self.take_i32_le()?;
+        if count < 0 {
+            return None;
+        }
+        for _ in 0..count {
+            self.string()?;
+            self.bool()?;
+        }
+        Some(())
+    }
+
+    fn education_shared_resource_uri(&mut self) -> Option<()> {
+        self.string()?;
+        self.string()
+    }
+
+    fn block_properties(&mut self) -> Option<u32> {
+        let count = self.var_u32()?;
+        for _ in 0..count {
+            self.string()?;
+            self.nbt()?;
+        }
+        Some(count)
+    }
+
+    fn nbt(&mut self) -> Option<()> {
+        skip_trace_nbt(self.packet, &mut self.offset).ok()
+    }
+
+    fn take_i32_le(&mut self) -> Option<i32> {
+        let end = self.offset.checked_add(4)?;
+        if end > self.packet.len() {
+            return None;
+        }
+        let bytes: [u8; 4] = self.packet[self.offset..end].try_into().ok()?;
+        self.offset = end;
+        Some(i32::from_le_bytes(bytes))
     }
 }
 

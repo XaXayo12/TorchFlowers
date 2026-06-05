@@ -1,4 +1,5 @@
 use std::{
+    collections::BTreeMap,
     env,
     time::{Duration, Instant},
 };
@@ -12,13 +13,10 @@ use bedrock::protocol::{
         },
         packets::{
             ClientCacheStatusPacket, InventoryTransactionPacket, MobEquipmentPacket,
-            MovePlayerPacket, PlayerActionPacket, RequestChunkRadiusPacket,
-            ResourcePackClientResponsePacket, SetLocalPlayerAsInitializedPacket,
+            MovePlayerPacket, RequestChunkRadiusPacket, ResourcePackClientResponsePacket,
+            SetLocalPlayerAsInitializedPacket,
         },
-        types::{
-            ActorRuntimeID, BlockPos, InventoryTransaction, NetworkBlockPosition,
-            NetworkItemStackDescriptor,
-        },
+        types::{ActorRuntimeID, BlockPos, InventoryTransaction, NetworkItemStackDescriptor},
     },
     v766::packets::player_auth_input_packet::PlayerAuthInputFlags,
     v898::{
@@ -109,8 +107,16 @@ fn trust_chunk_publisher_position() -> bool {
     env_flag("BEDROCK_TRUST_CHUNK_PUBLISHER_POSITION", false)
 }
 
+fn trust_item_entity_position_hint() -> bool {
+    env_flag("BEDROCK_TRUST_ITEM_ENTITY_POSITION_HINT", true)
+}
+
 fn received_server_data_input_flag() -> u128 {
     PlayerAuthInputFlags::ReceivedServerData as u128
+}
+
+fn block_action_input_flags() -> u128 {
+    received_server_data_input_flag() | PlayerAuthInputFlags::PerformBlockActions as u128
 }
 
 fn movement_start_delay_duration() -> Duration {
@@ -197,6 +203,7 @@ struct MovementValidation {
     pickup_last_sent_at: Option<Instant>,
     pickup_last_inventory_probe_at: Option<Instant>,
     pickup_frames_sent: u64,
+    pickup_prebreak: bool,
     pickup_failed_reported: bool,
     pickup_terminal_failed: bool,
     approach_last_sent_at: Option<Instant>,
@@ -213,6 +220,8 @@ struct MovementValidation {
     observed_solid_blocks: Vec<BlockTarget>,
     observed_solid_block_runtime_ids: Vec<(BlockTarget, u32)>,
     observed_item_entity: Option<ItemEntityTarget>,
+    observed_item_entities: Vec<ItemEntityTarget>,
+    rejected_item_entity_runtime_ids: Vec<u64>,
     network_chunk_position_hint: Option<(f32, f32, f32)>,
     inventory_log_count: u32,
 }
@@ -461,6 +470,7 @@ impl MovementValidation {
             pickup_last_sent_at: None,
             pickup_last_inventory_probe_at: None,
             pickup_frames_sent: 0,
+            pickup_prebreak: false,
             pickup_failed_reported: false,
             pickup_terminal_failed: false,
             approach_last_sent_at: None,
@@ -477,6 +487,8 @@ impl MovementValidation {
             observed_solid_blocks: Vec::new(),
             observed_solid_block_runtime_ids: Vec::new(),
             observed_item_entity: None,
+            observed_item_entities: Vec::new(),
+            rejected_item_entity_runtime_ids: Vec::new(),
             network_chunk_position_hint: None,
             inventory_log_count: 0,
         }
@@ -684,8 +696,23 @@ impl MovementValidation {
     }
 
     fn has_approachable_placeable_drop_target(&self) -> bool {
-        self.nearest_observed_solid_block_with_limits(self.last_sent_position, true, 32.0, 8.0)
-            .is_some()
+        self.nearest_observed_solid_block_with_limits(
+            self.last_sent_position,
+            true,
+            32.0,
+            GAMEPLAY_BREAK_REACH_VERTICAL,
+        )
+        .is_some()
+    }
+
+    fn has_walkable_placeable_drop_target(&self) -> bool {
+        self.nearest_observed_solid_block_with_limits(
+            self.last_sent_position,
+            true,
+            128.0,
+            GAMEPLAY_BREAK_REACH_VERTICAL,
+        )
+        .is_some()
     }
 
     fn observed_block_is_placeable_drop(&self, target: BlockTarget) -> bool {
@@ -713,9 +740,40 @@ impl MovementValidation {
             .filter(|target| {
                 self.break_target_allowed_for_place_collection(**target)
                     && block_target_horizontal_distance(**target, self.last_sent_position) <= 32.0
-                    && block_target_vertical_delta(**target, self.last_sent_position) <= 8.0
+                    && block_target_vertical_delta(**target, self.last_sent_position)
+                        <= GAMEPLAY_BREAK_REACH_VERTICAL
             })
             .count()
+    }
+
+    fn observed_runtime_frequency_summary(&self) -> String {
+        if self.observed_solid_block_runtime_ids.is_empty() {
+            return "none".to_string();
+        }
+        let mut counts = BTreeMap::<u32, usize>::new();
+        for (_, runtime_id) in &self.observed_solid_block_runtime_ids {
+            *counts.entry(*runtime_id).or_default() += 1;
+        }
+        let mut entries = counts.into_iter().collect::<Vec<_>>();
+        entries.sort_by(|(left_id, left_count), (right_id, right_count)| {
+            right_count
+                .cmp(left_count)
+                .then_with(|| left_id.cmp(right_id))
+        });
+        entries
+            .into_iter()
+            .take(12)
+            .map(|(runtime_id, count)| {
+                format!(
+                    "{}:{}:accepted={}:rejected={}",
+                    runtime_id,
+                    count,
+                    is_normal_validation_placeable_drop_runtime_id(runtime_id),
+                    self.rejected_break_runtime_ids.contains(&runtime_id)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",")
     }
 
     fn record_observed_block_sample(&mut self, sample: &ObservedBlockSample) {
@@ -793,6 +851,8 @@ impl MovementValidation {
         self.break_last_sent_at = None;
         self.break_stop_sent = false;
         self.observed_item_entity = None;
+        self.observed_item_entities.clear();
+        self.rejected_item_entity_runtime_ids.clear();
         eprintln!(
             "[GAMEPLAY_RTP] position_hint=observed_terrain source={} target={} new_position={} previous={} distance_xz={:.1}",
             source,
@@ -1017,6 +1077,8 @@ impl MovementValidation {
         self.break_last_sent_at = None;
         self.break_stop_sent = false;
         self.observed_item_entity = None;
+        self.observed_item_entities.clear();
+        self.rejected_item_entity_runtime_ids.clear();
         if self.rtp_menu_click_sent {
             self.rtp_menu_click_attempts = RTP_MENU_MAX_CLICK_ATTEMPTS;
         }
@@ -1380,7 +1442,6 @@ impl MovementValidation {
         if entity.item_id == 0 {
             return;
         }
-        self.record_rtp_position_hint_from_item_entity(entity);
         if let Some(reason) =
             normal_item_entity_rejection_reason(entity.item_id, &entity.item_bytes)
         {
@@ -1393,6 +1454,8 @@ impl MovementValidation {
             );
             return;
         }
+        self.record_initial_position_hint_from_item_entity(entity);
+        self.record_rtp_position_hint_from_item_entity(entity);
         let reference = self
             .break_target
             .map(|target| {
@@ -1414,12 +1477,16 @@ impl MovementValidation {
             );
             return;
         }
-        let current_score = self
-            .observed_item_entity
-            .as_ref()
-            .map(|current| position_score(current.position, reference));
-        let replace = current_score
-            .map(|score| candidate_score < score)
+        let target = ItemEntityTarget {
+            runtime_id: entity.runtime_entity_id,
+            item_id: entity.item_id,
+            stack_id: entity.stack_id,
+            position: entity.position,
+            item_bytes: entity.item_bytes.clone(),
+        };
+        let replace = self
+            .select_observed_item_entity(reference)
+            .map(|current| target.runtime_id == current.runtime_id)
             .unwrap_or(true);
         eprintln!(
             "[GAMEPLAY_ITEM_ENTITY] observed=true runtime_id={} item_id={} stack_id={} position={} velocity={} distance={:.3} selected={} item_len={}",
@@ -1435,15 +1502,69 @@ impl MovementValidation {
             replace,
             entity.item_bytes.len()
         );
-        if replace {
-            self.observed_item_entity = Some(ItemEntityTarget {
-                runtime_id: entity.runtime_entity_id,
-                item_id: entity.item_id,
-                stack_id: entity.stack_id,
-                position: entity.position,
-                item_bytes: entity.item_bytes.clone(),
-            });
+        self.cache_observed_item_entity_target(target, reference);
+    }
+
+    fn cache_observed_item_entity_target(
+        &mut self,
+        target: ItemEntityTarget,
+        reference: (f32, f32, f32),
+    ) {
+        self.observed_item_entities
+            .retain(|item| item.runtime_id != target.runtime_id);
+        self.observed_item_entities.push(target);
+        while self.observed_item_entities.len() > 16 {
+            self.observed_item_entities.remove(0);
         }
+        self.observed_item_entity = self.select_observed_item_entity(reference);
+    }
+
+    fn select_observed_item_entity(&self, reference: (f32, f32, f32)) -> Option<ItemEntityTarget> {
+        self.observed_item_entities
+            .iter()
+            .filter(|item| {
+                !self
+                    .rejected_item_entity_runtime_ids
+                    .contains(&item.runtime_id)
+            })
+            .min_by(|a, b| {
+                position_score(a.position, reference)
+                    .partial_cmp(&position_score(b.position, reference))
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+            .cloned()
+    }
+
+    fn record_initial_position_hint_from_item_entity(&mut self, entity: &ObservedItemEntity) {
+        if !trust_item_entity_position_hint()
+            || self.sent_frames != 0
+            || self.last_server_position.is_some()
+            || !self.raw_start_position_looks_placeholder()
+            || self.rtp_command_sent
+            || self.rtp_menu_click_sent
+            || self.rtp_terrain_position_hint_received
+        {
+            return;
+        }
+        let current = self.last_sent_position;
+        let hinted = entity.position;
+        let dx = hinted.0 - current.0;
+        let dz = hinted.2 - current.2;
+        let distance_xz = (dx * dx + dz * dz).sqrt();
+        if distance_xz < 64.0 {
+            return;
+        }
+        self.last_sent_position = hinted;
+        self.spawn_position = hinted;
+        self.initial_position_hint_wait_reported = false;
+        eprintln!(
+            "[GAMEPLAY_POSITION] source=initial_item_entity runtime_id={} item_id={} position={} previous={} distance_xz={:.1}",
+            entity.runtime_entity_id,
+            entity.item_id,
+            format_position(hinted),
+            format_position(current),
+            distance_xz
+        );
     }
 
     fn record_take_item_entity(&mut self, runtime_entity_id: u64, target_runtime_entity_id: u32) {
@@ -1457,9 +1578,49 @@ impl MovementValidation {
             "[GAMEPLAY_ITEM_ENTITY] taken=true runtime_id={} target_runtime_id={} target_is_self={} matches_cached={}",
             runtime_entity_id, target_runtime_entity_id, target_is_self, matches_cached
         );
+        self.observed_item_entities
+            .retain(|item| item.runtime_id != runtime_entity_id);
         if matches_cached {
-            self.observed_item_entity = None;
+            self.observed_item_entity = self.select_observed_item_entity(self.last_sent_position);
         }
+    }
+
+    fn prepare_next_item_entity_after_pickup_failure(&mut self) -> bool {
+        let Some(previous_item) = self.observed_item_entity.clone() else {
+            self.pickup_terminal_failed = true;
+            return false;
+        };
+        if !self
+            .rejected_item_entity_runtime_ids
+            .contains(&previous_item.runtime_id)
+        {
+            self.rejected_item_entity_runtime_ids
+                .push(previous_item.runtime_id);
+        }
+        self.observed_item_entities
+            .retain(|item| item.runtime_id != previous_item.runtime_id);
+        let reference = self.last_sent_position;
+        let Some(next_item) = self.select_observed_item_entity(reference) else {
+            self.observed_item_entity = None;
+            self.pickup_terminal_failed = true;
+            return false;
+        };
+        eprintln!(
+            "[GAMEPLAY_PICKUP] retry_item_entity=true previous_runtime_id={} next_runtime_id={} next_item_id={} next_position={} rejected_item_runtime_ids={:?}",
+            previous_item.runtime_id,
+            next_item.runtime_id,
+            next_item.item_id,
+            format_position(next_item.position),
+            self.rejected_item_entity_runtime_ids
+        );
+        self.observed_item_entity = Some(next_item);
+        self.pickup_probe_started_at = None;
+        self.pickup_last_sent_at = None;
+        self.pickup_last_inventory_probe_at = None;
+        self.pickup_frames_sent = 0;
+        self.pickup_failed_reported = false;
+        self.pickup_terminal_failed = false;
+        true
     }
 
     fn ensure_gameplay_targets(&mut self) {
@@ -1507,20 +1668,34 @@ impl MovementValidation {
         } else {
             let placeable_count = self.observed_placeable_drop_count();
             let approachable_placeable_count = self.observed_approachable_placeable_drop_count();
+            let walkable_placeable_available = self.has_walkable_placeable_drop_target();
             eprintln!(
-                "[GAMEPLAY_TARGET] no_placeable_drop_target current={} observed_count={} placeable_count={} approachable_placeable_count={} rejected_targets={} rejected_runtime_ids={:?}",
+                "[GAMEPLAY_TARGET] no_placeable_drop_target current={} observed_count={} placeable_count={} approachable_placeable_count={} walkable_placeable_available={} rejected_targets={} rejected_runtime_ids={:?} runtime_summary={}",
                 format_position(probe_origin),
                 self.observed_solid_blocks.len(),
                 placeable_count,
                 approachable_placeable_count,
+                walkable_placeable_available,
                 self.rejected_break_targets.len(),
-                self.rejected_break_runtime_ids
+                self.rejected_break_runtime_ids,
+                self.observed_runtime_frequency_summary()
             );
             if placeable_count == 0 {
                 eprintln!(
-                    "[GAMEPLAY_TARGET] failed no_normal_placeable_drop_target current={} observed_count={} rejected_targets={} rejected_runtime_ids={:?}",
+                    "[GAMEPLAY_TARGET] failed no_normal_placeable_drop_target current={} observed_count={} rejected_targets={} rejected_runtime_ids={:?} runtime_summary={}",
                     format_position(probe_origin),
                     self.observed_solid_blocks.len(),
+                    self.rejected_break_targets.len(),
+                    self.rejected_break_runtime_ids,
+                    self.observed_runtime_frequency_summary()
+                );
+                self.pickup_terminal_failed = true;
+            } else if walkable_placeable_available {
+                eprintln!(
+                    "[GAMEPLAY_TARGET] deferred approach_required=true current={} placeable_count={} approachable_placeable_count={} rejected_targets={} rejected_runtime_ids={:?}",
+                    format_position(probe_origin),
+                    placeable_count,
+                    approachable_placeable_count,
                     self.rejected_break_targets.len(),
                     self.rejected_break_runtime_ids
                 );
@@ -1533,8 +1708,8 @@ impl MovementValidation {
                     self.rejected_break_targets.len(),
                     self.rejected_break_runtime_ids
                 );
+                self.pickup_terminal_failed = true;
             }
-            self.pickup_terminal_failed = true;
             return;
         };
         let break_target_runtime_id = self.observed_target_runtime_id(break_target);
@@ -1642,6 +1817,75 @@ impl MovementValidation {
         self.rtp_terrain_position_hint_failed_reported = false;
     }
 
+    fn reset_for_rtp_retry_after_target_failure(&mut self, reason: &'static str) -> bool {
+        let used_rtp_flow = self.rtp_command_sent || self.rtp_menu_click_sent || self.rtp_wait_done;
+        if !used_rtp_flow {
+            return false;
+        }
+        if self.rtp_command_attempts >= RTP_MAX_COMMAND_ATTEMPTS {
+            return false;
+        }
+        eprintln!(
+            "[GAMEPLAY_RTP] retry_after_target_failure=true reason={} next_attempt={} observed_count={} placeable_count={} rejected_targets={} rejected_runtime_ids={:?}",
+            reason,
+            self.rtp_command_attempts.saturating_add(1),
+            self.observed_solid_blocks.len(),
+            self.observed_placeable_drop_count(),
+            self.rejected_break_targets.len(),
+            self.rejected_break_runtime_ids
+        );
+        self.inventory_probe_sent = false;
+        self.rtp_command_sent = false;
+        self.rtp_command_sent_at = None;
+        self.rtp_menu_click_sent = false;
+        self.rtp_menu_click_sent_at = None;
+        self.rtp_menu_click_attempts = 0;
+        self.rtp_menu_last_click_attempt_at = None;
+        self.rtp_container_close_sent = false;
+        self.rtp_position_hint_received = false;
+        self.rtp_position_hint_received_at = None;
+        self.rtp_marker_position_hint_received = false;
+        self.rtp_terrain_position_hint_received = false;
+        self.rtp_terrain_position_hint_received_at = None;
+        self.rtp_waiting_for_menu_reported = false;
+        self.rtp_waiting_for_terrain_hint_reported = false;
+        self.rtp_terrain_position_hint_failed_reported = false;
+        self.rtp_wait_done = false;
+        self.gameplay_probe_sent = false;
+        self.gameplay_probe_sent_at = None;
+        self.gameplay_timeout_reported = false;
+        self.break_probe_started_at = None;
+        self.break_last_sent_at = None;
+        self.break_stop_sent = false;
+        self.break_confirmed = false;
+        self.break_confirmation_failed_reported = false;
+        self.place_probe_sent = false;
+        self.pickup_probe_started_at = None;
+        self.pickup_last_sent_at = None;
+        self.pickup_last_inventory_probe_at = None;
+        self.pickup_frames_sent = 0;
+        self.pickup_prebreak = false;
+        self.pickup_failed_reported = false;
+        self.pickup_terminal_failed = false;
+        self.approach_last_sent_at = None;
+        self.approach_frames_sent = 0;
+        self.held_item = None;
+        self.held_item_equipped = false;
+        self.break_target = None;
+        self.break_target_runtime_id = None;
+        self.place_base = None;
+        self.place_result = None;
+        self.rejected_break_targets.clear();
+        self.break_target_attempts = 0;
+        self.observed_break_candidate = None;
+        self.observed_solid_blocks.clear();
+        self.observed_solid_block_runtime_ids.clear();
+        self.observed_item_entity = None;
+        self.observed_item_entities.clear();
+        self.rejected_item_entity_runtime_ids.clear();
+        true
+    }
+
     fn pickup_target_position(&self) -> Option<(f32, f32, f32)> {
         let player_safe_y = self
             .last_server_position
@@ -1688,18 +1932,24 @@ impl MovementValidation {
             self.pickup_terminal_failed = true;
             return false;
         }
-        let has_next_observed_target = self
-            .observed_solid_blocks
-            .iter()
-            .any(|target| self.break_target_allowed(*target))
-            || self
-                .observed_break_candidate
-                .map(|target| self.break_target_allowed(target))
-                .unwrap_or(false)
-            || self
-                .fallback_break_target(self.last_sent_position)
-                .is_some();
+        let has_next_observed_target = if self.held_item.is_none() {
+            self.has_walkable_placeable_drop_target()
+        } else {
+            self.observed_solid_blocks
+                .iter()
+                .any(|target| self.break_target_allowed(*target))
+                || self
+                    .observed_break_candidate
+                    .map(|target| self.break_target_allowed(target))
+                    .unwrap_or(false)
+                || self
+                    .fallback_break_target(self.last_sent_position)
+                    .is_some()
+        };
         if !has_next_observed_target {
+            if self.reset_for_rtp_retry_after_target_failure("no_next_pickup_target") {
+                return true;
+            }
             self.pickup_terminal_failed = true;
             return false;
         }
@@ -1718,14 +1968,19 @@ impl MovementValidation {
         self.pickup_last_sent_at = None;
         self.pickup_last_inventory_probe_at = None;
         self.pickup_frames_sent = 0;
+        self.pickup_prebreak = false;
         self.pickup_failed_reported = false;
         self.pickup_terminal_failed = false;
         self.approach_last_sent_at = None;
         self.approach_frames_sent = 0;
         self.observed_item_entity = None;
+        self.observed_item_entities.clear();
+        self.rejected_item_entity_runtime_ids.clear();
         self.held_item = None;
         self.held_item_equipped = false;
-        self.gameplay_probe_sent_at = Some(Instant::now());
+        self.gameplay_probe_sent = false;
+        self.gameplay_probe_sent_at = None;
+        self.gameplay_timeout_reported = false;
         true
     }
 
@@ -1734,6 +1989,8 @@ impl MovementValidation {
             self.pickup_terminal_failed = true;
             return false;
         };
+        let held_item = self.held_item.clone();
+        let held_item_equipped = self.held_item_equipped;
         if !self.rejected_break_targets.contains(&previous_target) {
             self.rejected_break_targets.push(previous_target);
         }
@@ -1760,18 +2017,24 @@ impl MovementValidation {
             self.pickup_terminal_failed = true;
             return false;
         }
-        let has_next_observed_target = self
-            .observed_solid_blocks
-            .iter()
-            .any(|target| self.break_target_allowed(*target))
-            || self
-                .observed_break_candidate
-                .map(|target| self.break_target_allowed(target))
-                .unwrap_or(false)
-            || self
-                .fallback_break_target(self.last_sent_position)
-                .is_some();
+        let has_next_observed_target = if self.held_item.is_none() {
+            self.has_walkable_placeable_drop_target()
+        } else {
+            self.nearest_observed_solid_block_with_limits(
+                self.last_sent_position,
+                false,
+                128.0,
+                16.0,
+            )
+            .is_some()
+                || self
+                    .fallback_break_target(self.last_sent_position)
+                    .is_some()
+        };
         if !has_next_observed_target {
+            if self.reset_for_rtp_retry_after_target_failure("no_next_break_target") {
+                return true;
+            }
             self.pickup_terminal_failed = true;
             return false;
         }
@@ -1790,13 +2053,18 @@ impl MovementValidation {
         self.pickup_last_sent_at = None;
         self.pickup_last_inventory_probe_at = None;
         self.pickup_frames_sent = 0;
+        self.pickup_prebreak = false;
         self.pickup_failed_reported = false;
         self.approach_last_sent_at = None;
         self.approach_frames_sent = 0;
         self.observed_item_entity = None;
-        self.held_item = None;
-        self.held_item_equipped = false;
-        self.gameplay_probe_sent_at = Some(Instant::now());
+        self.observed_item_entities.clear();
+        self.rejected_item_entity_runtime_ids.clear();
+        self.held_item = held_item;
+        self.held_item_equipped = held_item_equipped;
+        self.gameplay_probe_sent = false;
+        self.gameplay_probe_sent_at = None;
+        self.gameplay_timeout_reported = false;
         true
     }
 
@@ -1831,16 +2099,50 @@ impl MovementValidation {
             && !self.pickup_terminal_failed
     }
 
+    fn ready_for_prebreak_pickup(&self) -> bool {
+        !self.gameplay_probe_sent
+            && self.held_item.is_none()
+            && self.observed_item_entity.is_some()
+            && !self.pickup_terminal_failed
+            && !self.has_sampled_placeable_drop_target()
+            && !self.has_approachable_placeable_drop_target()
+            && !self.has_walkable_placeable_drop_target()
+    }
+
     fn ready_for_place(&self) -> bool {
         self.gameplay_probe_sent && !self.place_probe_sent && self.held_item.is_some()
     }
 
     fn next_gameplay_approach_frame(&mut self) -> Option<MovementFrame> {
+        self.next_gameplay_approach_frame_with_limits(32.0, GAMEPLAY_BREAK_REACH_VERTICAL)
+    }
+
+    fn aim_at_block_target(&mut self, target: BlockTarget) {
+        let target_position = (
+            target.x as f32 + 0.5,
+            target.y as f32 + 0.5,
+            target.z as f32 + 0.5,
+        );
+        let current = self.last_sent_position;
+        let dx = target_position.0 - current.0;
+        let dz = target_position.2 - current.2;
+        let horizontal = (dx * dx + dz * dz).sqrt().max(0.001);
+        let eye_y = current.1 + 1.62;
+        let dy = target_position.1 - eye_y;
+        self.yaw = (-dx).atan2(dz).to_degrees();
+        self.pitch = (-dy).atan2(horizontal).to_degrees().clamp(-89.9, 89.9);
+    }
+
+    fn next_gameplay_approach_frame_with_limits(
+        &mut self,
+        max_horizontal: f32,
+        max_vertical: f32,
+    ) -> Option<MovementFrame> {
         let target = self.nearest_observed_solid_block_with_limits(
             self.last_sent_position,
             true,
-            32.0,
-            8.0,
+            max_horizontal,
+            max_vertical,
         )?;
         let target_position = (
             target.x as f32 + 0.5,
@@ -2087,6 +2389,7 @@ impl BedrockBotSession {
                     self.drive_movement_validation_when_ready(
                         account_id,
                         bot_id,
+                        session,
                         &mut conn,
                         &mut movement_validation,
                         &mut status,
@@ -2157,6 +2460,7 @@ impl BedrockBotSession {
                                 self.drive_movement_validation_when_ready(
                                     account_id,
                                     bot_id,
+                                    session,
                                     &mut conn,
                                     &mut movement_validation,
                                     &mut status,
@@ -2249,6 +2553,7 @@ impl BedrockBotSession {
                                 self.drive_movement_validation_when_ready(
                                     account_id,
                                     bot_id,
+                                    session,
                                     &mut conn,
                                     &mut movement_validation,
                                     &mut status,
@@ -2335,6 +2640,7 @@ impl BedrockBotSession {
                             self.drive_movement_validation_when_ready(
                                 account_id,
                                 bot_id,
+                                session,
                                 &mut conn,
                                 &mut movement_validation,
                                 &mut status,
@@ -2404,10 +2710,21 @@ impl BedrockBotSession {
                                     "runtime_id": format!("{current_runtime_id:?}"),
                                     "entity_id": current_entity_id,
                                     "position": position,
-                                    "rotation": start.rotation
+                                    "rotation": start.rotation,
+                                    "server_authoritative_block_breaking": start.movement_settings.server_authoritative_block_breaking,
+                                    "disable_player_interactions": start.settings.disable_player_interactions,
+                                    "block_network_ids_are_hashes": start.block_network_ids_are_hashes,
+                                    "block_property_count": start.block_properties.len()
                                 }),
                             )
                             .await?;
+                        eprintln!(
+                            "[STARTGAME_POLICY] server_authoritative_block_breaking={} disable_player_interactions={} block_network_ids_are_hashes={} block_property_count={}",
+                            start.movement_settings.server_authoritative_block_breaking,
+                            start.settings.disable_player_interactions,
+                            start.block_network_ids_are_hashes,
+                            start.block_properties.len()
+                        );
                         let mut movement = MovementValidation::new(
                             current_runtime_id.clone(),
                             started.elapsed().as_secs().max(1),
@@ -2452,6 +2769,7 @@ impl BedrockBotSession {
                             self.drive_movement_validation_when_ready(
                                 account_id,
                                 bot_id,
+                                session,
                                 &mut conn,
                                 &mut movement_validation,
                                 &mut status,
@@ -2718,6 +3036,7 @@ impl BedrockBotSession {
                     self.drive_movement_validation_when_ready(
                         account_id,
                         bot_id,
+                        session,
                         &mut conn,
                         &mut movement_validation,
                         &mut status,
@@ -2775,6 +3094,7 @@ impl BedrockBotSession {
                                 self.drive_movement_validation_when_ready(
                                     account_id,
                                     bot_id,
+                                    session,
                                     &mut conn,
                                     &mut movement_validation,
                                     &mut status,
@@ -2854,6 +3174,25 @@ impl BedrockBotSession {
                                     start_game.rotation.0,
                                     start_game.rotation.1
                                 );
+                                eprintln!(
+                                    "[STARTGAME_POLICY] source=raw_start_game server_authoritative_block_breaking={} disable_player_interactions={} block_network_ids_are_hashes={} block_property_count={}",
+                                    start_game
+                                        .server_authoritative_block_breaking
+                                        .map(|value| value.to_string())
+                                        .unwrap_or_else(|| "unknown".to_string()),
+                                    start_game
+                                        .disable_player_interactions
+                                        .map(|value| value.to_string())
+                                        .unwrap_or_else(|| "unknown".to_string()),
+                                    start_game
+                                        .block_network_ids_are_hashes
+                                        .map(|value| value.to_string())
+                                        .unwrap_or_else(|| "unknown".to_string()),
+                                    start_game
+                                        .block_property_count
+                                        .map(|value| value.to_string())
+                                        .unwrap_or_else(|| "unknown".to_string())
+                                );
                                 if status.player_spawn && !movement_init_sent {
                                     self.send_movement_initialization(
                                         account_id,
@@ -2875,6 +3214,7 @@ impl BedrockBotSession {
                                     self.drive_movement_validation_when_ready(
                                         account_id,
                                         bot_id,
+                                        session,
                                         &mut conn,
                                         &mut movement_validation,
                                         &mut status,
@@ -3094,6 +3434,7 @@ impl BedrockBotSession {
                     self.drive_movement_validation_when_ready(
                         account_id,
                         bot_id,
+                        session,
                         &mut conn,
                         &mut movement_validation,
                         &mut status,
@@ -3113,6 +3454,7 @@ impl BedrockBotSession {
                 self.drive_movement_validation_when_ready(
                     account_id,
                     bot_id,
+                    session,
                     &mut conn,
                     &mut movement_validation,
                     &mut status,
@@ -3146,8 +3488,12 @@ impl BedrockBotSession {
         Ok(status)
     }
 
-    async fn send_chat_probe(&self, conn: &mut BedrockProtocolAdapter) -> EngineResult<()> {
-        self.send_text_message(conn, "TorchFlower validation online")
+    async fn send_chat_probe(
+        &self,
+        conn: &mut BedrockProtocolAdapter,
+        session: &ProvisionedBedrockSession,
+    ) -> EngineResult<()> {
+        self.send_text_message(conn, session, "TorchFlower validation online")
             .await
     }
 
@@ -3212,6 +3558,7 @@ impl BedrockBotSession {
     async fn send_text_message(
         &self,
         conn: &mut BedrockProtocolAdapter,
+        session: &ProvisionedBedrockSession,
         message: &str,
     ) -> EngineResult<()> {
         conn.send(&[BedrockProto::TextPacket(Box::new(TextPacket::<
@@ -3219,10 +3566,10 @@ impl BedrockBotSession {
         > {
             localize: false,
             message_type: TextPacketType::Chat {
-                player_name: "TorchFlower".to_string(),
+                player_name: session.chain.display_name.clone(),
                 message: message.to_string(),
             },
-            sender_xuid: String::new(),
+            sender_xuid: session.chain.xuid.clone(),
             platform_id: String::new(),
             filtered_message: None,
         }))])
@@ -3273,6 +3620,7 @@ impl BedrockBotSession {
     async fn send_validation_command(
         &self,
         conn: &mut BedrockProtocolAdapter,
+        session: &ProvisionedBedrockSession,
         command: &str,
         player_entity_id: i64,
     ) -> EngineResult<()> {
@@ -3286,7 +3634,7 @@ impl BedrockBotSession {
                 "[COMMAND_TX] packet=TextPacket command={} mode=text",
                 command.trim()
             );
-            self.send_text_message(conn, command).await
+            self.send_text_message(conn, session, command).await
         }
     }
 
@@ -3294,6 +3642,7 @@ impl BedrockBotSession {
         &self,
         account_id: &str,
         bot_id: Option<&str>,
+        session: &ProvisionedBedrockSession,
         conn: &mut BedrockProtocolAdapter,
         movement_validation: &mut Option<MovementValidation>,
         status: &mut CapabilityStatus,
@@ -3318,6 +3667,7 @@ impl BedrockBotSession {
         self.drive_movement_validation(
             account_id,
             bot_id,
+            session,
             conn,
             movement_validation,
             status,
@@ -3330,6 +3680,7 @@ impl BedrockBotSession {
         &self,
         account_id: &str,
         bot_id: Option<&str>,
+        session: &ProvisionedBedrockSession,
         conn: &mut BedrockProtocolAdapter,
         movement_validation: &mut Option<MovementValidation>,
         status: &mut CapabilityStatus,
@@ -3415,6 +3766,32 @@ impl BedrockBotSession {
                 let frame = movement.next_idle_frame();
                 self.send_idle_movement_frame(conn, &frame).await?;
             }
+            if status.movement && movement.ready_for_prebreak_pickup() {
+                let starting_prebreak_pickup = movement.pickup_probe_started_at.is_none();
+                movement.rtp_wait_done = true;
+                movement.inventory_probe_sent = true;
+                movement.pickup_prebreak = true;
+                status.inventory_transactions = true;
+                if starting_prebreak_pickup {
+                    eprintln!(
+                        "[GAMEPLAY_PICKUP] prebreak_priority=true reason=normal_item_entity_before_rtp current={} item_target={}",
+                        format_position(movement.last_sent_position),
+                        movement
+                            .observed_item_entity
+                            .as_ref()
+                            .map(|item| format!(
+                                "runtime_id={} item_id={} item_len={} position={}",
+                                item.runtime_id,
+                                item.item_id,
+                                item.item_bytes.len(),
+                                format_position(item.position)
+                            ))
+                            .unwrap_or_else(|| "none".to_string())
+                    );
+                }
+                self.drive_gameplay_pickup(conn, movement).await?;
+                return Ok(());
+            }
             if status.movement && !movement.inventory_probe_sent {
                 let rtp_wait_duration = rtp_wait_duration();
                 let rtp_menu_open_wait_duration = rtp_menu_open_wait_duration();
@@ -3441,13 +3818,24 @@ impl BedrockBotSession {
                 if !rtp_command.trim().is_empty()
                     && !movement.rtp_command_sent
                     && !skip_rtp_for_loaded_world
+                    && movement.rtp_command_attempts < RTP_MAX_COMMAND_ATTEMPTS
                 {
-                    eprintln!("[GAMEPLAY_RTP] tx command={}", rtp_command);
-                    self.send_validation_command(conn, &rtp_command, movement.entity_id)
-                        .await?;
+                    let command_to_send = rtp_command.clone();
+                    let attempt = movement.rtp_command_attempts.saturating_add(1);
+                    eprintln!(
+                        "[GAMEPLAY_RTP] tx command={} attempt={}",
+                        command_to_send, attempt
+                    );
+                    self.send_validation_command(
+                        conn,
+                        session,
+                        &command_to_send,
+                        movement.entity_id,
+                    )
+                    .await?;
                     movement.rtp_command_sent = true;
                     movement.rtp_command_sent_at = Some(Instant::now());
-                    movement.rtp_command_attempts = 1;
+                    movement.rtp_command_attempts = attempt;
                     status.chat = true;
                     return Ok(());
                 }
@@ -3549,6 +3937,7 @@ impl BedrockBotSession {
                             );
                             self.send_validation_command(
                                 conn,
+                                session,
                                 &fallback_command,
                                 movement.entity_id,
                             )
@@ -3641,23 +4030,36 @@ impl BedrockBotSession {
                 return Ok(());
             }
             if status.movement && send_chat_probe && !movement.chat_probe_sent {
-                self.send_chat_probe(conn).await?;
+                self.send_chat_probe(conn, session).await?;
                 movement.chat_probe_sent = true;
                 status.chat = true;
                 return Ok(());
             }
-            if status.movement && !movement.gameplay_probe_sent {
+            if status.movement && !movement.gameplay_probe_sent && !movement.pickup_terminal_failed
+            {
+                if movement.ready_for_prebreak_pickup() {
+                    movement.pickup_prebreak = true;
+                    self.drive_gameplay_pickup(conn, movement).await?;
+                    return Ok(());
+                }
                 if !movement.has_sampled_placeable_drop_target()
-                    && movement.has_approachable_placeable_drop_target()
+                    && (movement.has_approachable_placeable_drop_target()
+                        || movement.has_walkable_placeable_drop_target())
                 {
+                    let max_horizontal = if movement.has_approachable_placeable_drop_target() {
+                        32.0
+                    } else {
+                        128.0
+                    };
+                    let max_vertical = GAMEPLAY_BREAK_REACH_VERTICAL;
                     let target = movement
                         .nearest_observed_solid_block_with_limits(
                             movement.last_sent_position,
                             true,
-                            32.0,
-                            8.0,
+                            max_horizontal,
+                            max_vertical,
                         )
-                        .expect("approachable target exists");
+                        .expect("walkable target exists");
                     if movement
                         .approach_last_sent_at
                         .map(|sent_at| sent_at.elapsed() < GAMEPLAY_APPROACH_SEND_INTERVAL)
@@ -3665,23 +4067,32 @@ impl BedrockBotSession {
                     {
                         return Ok(());
                     }
-                    if let Some(frame) = movement.next_gameplay_approach_frame() {
+                    let frame = if max_horizontal <= 32.0 {
+                        movement.next_gameplay_approach_frame()
+                    } else {
+                        movement
+                            .next_gameplay_approach_frame_with_limits(max_horizontal, max_vertical)
+                    };
+                    if let Some(frame) = frame {
                         eprintln!(
-                            "[GAMEPLAY_APPROACH] target={} current={} frame={} tick={} position={} velocity={}",
+                            "[GAMEPLAY_APPROACH] target={} current={} frame={} tick={} position={} velocity={} max_horizontal={:.1} max_vertical={:.1}",
                             format_block_target(target),
                             format_position(movement.last_sent_position),
                             frame.frame_index,
                             frame.tick,
                             format_position(frame.position),
-                            format_position(frame.velocity)
+                            format_position(frame.velocity),
+                            max_horizontal,
+                            max_vertical
                         );
                         self.send_movement_frame(conn, &frame).await?;
                         return Ok(());
                     }
                 }
-                self.send_gameplay_action_probe(conn, movement).await?;
-                movement.gameplay_probe_sent = true;
-                movement.gameplay_probe_sent_at = Some(Instant::now());
+                if self.send_gameplay_action_probe(conn, movement).await? {
+                    movement.gameplay_probe_sent = true;
+                    movement.gameplay_probe_sent_at = Some(Instant::now());
+                }
             }
             if movement.gameplay_probe_sent
                 && !movement.break_confirmed
@@ -3802,7 +4213,8 @@ impl BedrockBotSession {
                 })
                 .unwrap_or_else(|| "none".to_string());
             eprintln!(
-                "[GAMEPLAY_PICKUP] started=true target={} item_target={} current={}",
+                "[GAMEPLAY_PICKUP] started=true prebreak={} target={} item_target={} current={}",
+                movement.pickup_prebreak,
                 target,
                 item_target,
                 format_position(movement.last_sent_position)
@@ -3830,8 +4242,38 @@ impl BedrockBotSession {
         if started_at.elapsed() > GAMEPLAY_PICKUP_DURATION {
             if movement.held_item.is_none() && !movement.pickup_failed_reported {
                 movement.pickup_failed_reported = true;
-                eprintln!("[GAMEPLAY_PICKUP] failed no_normal_placeable_drop_collected");
-                if movement.prepare_next_break_target_after_pickup_failure() {
+                if movement.pickup_prebreak {
+                    eprintln!(
+                        "[GAMEPLAY_PICKUP] failed no_normal_placeable_item_collected prebreak=true target={} item_target={}",
+                        movement
+                            .pickup_target_position()
+                            .map(format_position)
+                            .unwrap_or_else(|| "none".to_string()),
+                        movement
+                            .observed_item_entity
+                            .as_ref()
+                            .map(|item| format!(
+                                "runtime_id={} item_id={} item_len={} position={}",
+                                item.runtime_id,
+                                item.item_id,
+                                item.item_bytes.len(),
+                                format_position(item.position)
+                            ))
+                            .unwrap_or_else(|| "none".to_string())
+                    );
+                    if movement.prepare_next_item_entity_after_pickup_failure() {
+                        eprintln!(
+                            "[GAMEPLAY_PICKUP] retry=true reason=try_next_normal_item_entity rejected_item_runtime_ids={:?}",
+                            movement.rejected_item_entity_runtime_ids
+                        );
+                    } else {
+                        eprintln!(
+                            "[GAMEPLAY_PICKUP] retry=false terminal=true reason=no_normal_item_entity_candidates rejected_item_runtime_ids={:?}",
+                            movement.rejected_item_entity_runtime_ids
+                        );
+                    }
+                } else if movement.prepare_next_break_target_after_pickup_failure() {
+                    eprintln!("[GAMEPLAY_PICKUP] failed no_normal_placeable_drop_collected");
                     eprintln!(
                         "[GAMEPLAY_PICKUP] retry=true next_break_attempt={} rejected_targets={} rejected_runtime_ids={:?}",
                         movement.break_target_attempts.saturating_add(1),
@@ -4049,6 +4491,33 @@ impl BedrockBotSession {
             | PlayerAuthInputFlags::Up as u128
             | PlayerAuthInputFlags::SprintDown as u128
             | PlayerAuthInputFlags::Sprinting as u128;
+        let send_move_player = env_bool("BEDROCK_SEND_PICKUP_MOVE_PLAYER", true);
+        if send_move_player {
+            eprintln!(
+                "[GAMEPLAY_PICKUP_TX] packet=MovePlayer frame={} tick={} elapsed={:.3} runtime_id={:?} position={} rotation={:.3},{:.3} velocity={} mode=Normal on_ground=true",
+                frame.frame_index,
+                frame.tick,
+                frame.elapsed_seconds,
+                frame.runtime_id,
+                format_position(frame.position),
+                frame.yaw,
+                frame.pitch,
+                format_position(frame.velocity)
+            );
+            conn.send(&[BedrockProto::MovePlayerPacket(Box::new(
+                MovePlayerPacket::<BedrockProto> {
+                    player_runtime_id: frame.runtime_id.clone(),
+                    position: frame.position,
+                    rotation: (frame.yaw, frame.pitch),
+                    y_head_rotation: frame.yaw,
+                    position_mode: PlayerPositionMode::Normal,
+                    on_ground: true,
+                    riding_runtime_id: ActorRuntimeID(0),
+                    tick: frame.tick,
+                },
+            ))])
+            .await?;
+        }
         eprintln!(
             "[GAMEPLAY_PICKUP_TX] packet=PlayerAuthInputRaw frame={} tick={} elapsed={:.3} position={} rotation={:.3},{:.3} velocity={} input_data={:#x}",
             frame.frame_index,
@@ -4085,7 +4554,7 @@ impl BedrockBotSession {
         &self,
         conn: &mut BedrockProtocolAdapter,
         movement: &mut MovementValidation,
-    ) -> EngineResult<()> {
+    ) -> EngineResult<bool> {
         movement.ensure_gameplay_targets();
         let Some(break_target) = movement.break_target else {
             eprintln!(
@@ -4095,27 +4564,30 @@ impl BedrockBotSession {
                 movement.rejected_break_targets.len(),
                 movement.rejected_break_runtime_ids
             );
-            return Ok(());
+            return Ok(false);
         };
         let Some(place_base) = movement.place_base else {
             eprintln!("[GAMEPLAY_BREAK] skipped missing_gameplay_place_base");
-            return Ok(());
+            return Ok(false);
         };
         let Some(place_result) = movement.place_result else {
             eprintln!("[GAMEPLAY_BREAK] skipped missing_gameplay_place_result");
-            return Ok(());
+            return Ok(false);
         };
+        movement.aim_at_block_target(break_target);
         let break_tick = movement.next_client_tick();
         let break_face = break_face_for_runtime_id(movement.break_target_runtime_id);
 
         eprintln!(
-            "[GAMEPLAY_BREAK] target={} place_base={} place_result={} break_face={} runtime_id={:?} tick={} held_item={}",
+            "[GAMEPLAY_BREAK] target={} place_base={} place_result={} break_face={} runtime_id={:?} tick={} yaw={:.3} pitch={:.3} held_item={}",
             format_block_target(break_target),
             format_block_target(place_base),
             format_block_target(place_result),
             break_face,
             movement.runtime_id,
             break_tick,
+            movement.yaw,
+            movement.pitch,
             movement
                 .held_item
                 .as_ref()
@@ -4126,21 +4598,17 @@ impl BedrockBotSession {
                 .unwrap_or_else(|| "none".to_string())
         );
 
-        conn.send(&[
-            BedrockProto::AnimatePacket(Box::new(AnimatePacket::<BedrockProto> {
-                action: AnimatePacketAction::Swing,
-                target_runtime_id: movement.runtime_id.clone(),
-                data: 0.0,
-                swing_source: Some(SwingSource::Mine),
-            })),
-            BedrockProto::PlayerActionPacket(Box::new(PlayerActionPacket::<BedrockProto> {
-                player_runtime_id: movement.runtime_id.clone(),
-                action: PlayerActionType::StartDestroyBlock,
-                block_position: network_block_position(break_target),
-                result_pos: network_block_position(break_target),
-                face: break_face,
-            })),
-        ])
+        eprintln!(
+            "[GAMEPLAY_BREAK] legacy_player_action_skipped=true reason=server_authoritative_block_actions"
+        );
+        conn.send(&[BedrockProto::AnimatePacket(Box::new(AnimatePacket::<
+            BedrockProto,
+        > {
+            action: AnimatePacketAction::Swing,
+            target_runtime_id: movement.runtime_id.clone(),
+            data: 0.0,
+            swing_source: Some(SwingSource::Mine),
+        }))])
         .await?;
 
         let block_actions = [RawBlockAction {
@@ -4153,9 +4621,7 @@ impl BedrockBotSession {
             velocity: (0.0, 0.0, 0.0),
             yaw: movement.yaw,
             pitch: movement.pitch,
-            input_data: received_server_data_input_flag()
-                | PlayerAuthInputFlags::PerformBlockActions as u128
-                | PlayerAuthInputFlags::MissedSwing as u128,
+            input_data: block_action_input_flags(),
             tick: break_tick,
             move_vector: (0.0, 0.0, 0.0),
             analog_move_vector: (0.0, 0.0),
@@ -4176,7 +4642,7 @@ impl BedrockBotSession {
         movement.break_stop_sent = false;
         movement.break_confirmed = false;
         movement.break_confirmation_failed_reported = false;
-        Ok(())
+        Ok(true)
     }
 
     async fn drive_gameplay_break(
@@ -4185,7 +4651,8 @@ impl BedrockBotSession {
         movement: &mut MovementValidation,
     ) -> EngineResult<()> {
         let Some(started_at) = movement.break_probe_started_at else {
-            return self.send_gameplay_action_probe(conn, movement).await;
+            let _started = self.send_gameplay_action_probe(conn, movement).await?;
+            return Ok(());
         };
         if movement
             .break_last_sent_at
@@ -4202,6 +4669,7 @@ impl BedrockBotSession {
                 .break_target_runtime_id
                 .or_else(|| movement.observed_target_runtime_id(break_target)),
         );
+        movement.aim_at_block_target(break_target);
         let elapsed = started_at.elapsed();
         if movement.break_stop_sent {
             if elapsed >= GAMEPLAY_BREAK_DURATION + GAMEPLAY_BREAK_CONFIRM_TIMEOUT
@@ -4283,9 +4751,7 @@ impl BedrockBotSession {
             velocity: (0.0, 0.0, 0.0),
             yaw: movement.yaw,
             pitch: movement.pitch,
-            input_data: received_server_data_input_flag()
-                | PlayerAuthInputFlags::PerformBlockActions as u128
-                | PlayerAuthInputFlags::MissedSwing as u128,
+            input_data: block_action_input_flags(),
             tick,
             move_vector: (0.0, 0.0, 0.0),
             analog_move_vector: (0.0, 0.0),
@@ -4760,7 +5226,8 @@ fn menu_click_target_from_observed(item: &ObservedInventoryItem) -> Option<MenuC
     if item.item_id == 0 {
         return None;
     }
-    let priority = rtp_menu_item_priority(item)?;
+    let priority =
+        rtp_menu_item_priority(item).or_else(|| donutsmp_spawn_hotbar_rtp_item_priority(item))?;
     let stack_id = item.stack_id?;
     Some(MenuClickTarget {
         window_id: item.container_id,
@@ -4834,12 +5301,41 @@ fn rtp_menu_item_priority(item: &ObservedInventoryItem) -> Option<u8> {
     }
 }
 
+fn donutsmp_spawn_hotbar_rtp_item_priority(item: &ObservedInventoryItem) -> Option<u8> {
+    if item.container_id == 0
+        && item.slot == 0
+        && item.item_id == 303
+        && item.item_bytes.len() <= 32
+    {
+        Some(80)
+    } else {
+        None
+    }
+}
+
 fn is_player_inventory_container(container_id: u32) -> bool {
     container_id == 0
 }
 
 fn is_probably_placeable_block_item(item_id: i32) -> bool {
     item_id > 0
+        && (item_id <= 255
+            || matches!(
+                item_id,
+                // Observed Bedrock 1.21.x block item IDs from minecraft-data.
+                303 | 306 | 320 | 343 | 371 | 372 | 373 | 374 | 422
+            ))
+}
+
+fn is_donutsmp_spawn_hotbar_utility_item_bytes(
+    container_id: u32,
+    item_id: i32,
+    item_bytes: &[u8],
+) -> bool {
+    container_id == 0
+        && matches!(item_id, 343 | 371 | 372 | 373 | 374)
+        && item_bytes.len() >= 32
+        && item_bytes.len() <= 96
 }
 
 fn normal_placeable_rejection_reason(
@@ -4849,6 +5345,12 @@ fn normal_placeable_rejection_reason(
 ) -> Option<&'static str> {
     if item_id == 0 {
         return Some("air");
+    }
+    if is_donutsmp_spawn_hotbar_rtp_item_bytes(container_id, item_id, item_bytes) {
+        return Some("server_ui_item");
+    }
+    if is_donutsmp_spawn_hotbar_utility_item_bytes(container_id, item_id, item_bytes) {
+        return Some("server_ui_item");
     }
     if is_server_ui_item_bytes(item_bytes) {
         return Some("server_ui_item");
@@ -4869,6 +5371,9 @@ fn normal_item_entity_rejection_reason(item_id: i32, item_bytes: &[u8]) -> Optio
     if is_server_ui_item_bytes(item_bytes) {
         return Some("server_ui_item");
     }
+    if matches!(item_id, 343 | 371 | 372 | 373 | 374) && item_bytes.len() >= 32 {
+        return Some("server_ui_item");
+    }
     if !is_probably_placeable_block_item(item_id) {
         return Some("not_placeable_block_item");
     }
@@ -4880,6 +5385,14 @@ fn is_server_ui_item_bytes(item_bytes: &[u8]) -> bool {
         return false;
     };
     is_server_ui_item_text(&text)
+}
+
+fn is_donutsmp_spawn_hotbar_rtp_item_bytes(
+    container_id: u32,
+    item_id: i32,
+    item_bytes: &[u8],
+) -> bool {
+    container_id == 0 && item_id == 303 && item_bytes.len() <= 32
 }
 
 fn is_server_ui_item_text(text: &str) -> bool {
@@ -4939,7 +5452,6 @@ fn is_observed_donutsmp_terrain_runtime_id(runtime_id: u32) -> bool {
             | 22010
             | 24356
             | 25040
-            | 25060
             | 26228
             | 27644
             | 27646
@@ -4947,7 +5459,6 @@ fn is_observed_donutsmp_terrain_runtime_id(runtime_id: u32) -> bool {
             | 27654
             | 27656
             | 28878
-            | 31612
     )
 }
 
@@ -5099,14 +5610,6 @@ fn is_break_confirmation_runtime_id(runtime_id: u32) -> bool {
 
 fn is_place_confirmation_runtime_id(runtime_id: u32) -> bool {
     runtime_id != OBSERVED_AIR_RUNTIME_ID
-}
-
-fn network_block_position(target: BlockTarget) -> NetworkBlockPosition {
-    NetworkBlockPosition {
-        x: target.x,
-        y: target.y.max(0) as u32,
-        z: target.z,
-    }
 }
 
 fn block_pos(target: BlockTarget) -> BlockPos {
@@ -5318,7 +5821,7 @@ fn encode_player_auth_input_packet_stream(input: &RawPlayerAuthInput<'_>) -> Eng
     }
 
     if input.input_data & PlayerAuthInputFlags::PerformBlockActions as u128 != 0 {
-        write_zigzag_i32(input.block_actions.len() as i32, &mut packet);
+        write_unsigned_varint_u32_local(input.block_actions.len() as u32, &mut packet);
         for action in input.block_actions {
             write_zigzag_i32(action.action, &mut packet);
             if matches!(action.action, 0 | 1 | 18 | 26 | 27) {
@@ -5513,7 +6016,7 @@ mod tests {
     }
 
     #[test]
-    fn raw_player_auth_input_block_actions_use_zigzag_count() {
+    fn raw_player_auth_input_block_actions_use_unsigned_varint_count() {
         let actions = [RawBlockAction {
             action: PlayerActionType::StartDestroyBlock as i32,
             target: BlockTarget { x: 1, y: 2, z: 3 },
@@ -5539,8 +6042,29 @@ mod tests {
         assert!(
             packet
                 .windows(6)
-                .any(|window| window == [0x02, 0x00, 0x02, 0x04, 0x06, 0x02]),
-            "missing zigzag block-action count/action/position/face sequence"
+                .any(|window| window == [0x01, 0x00, 0x02, 0x04, 0x06, 0x02]),
+            "missing unsigned-varint block-action count/action/position/face sequence"
+        );
+    }
+
+    #[test]
+    fn block_break_input_flags_do_not_mark_missed_swing() {
+        let flags = block_action_input_flags();
+
+        assert_ne!(
+            flags & PlayerAuthInputFlags::ReceivedServerData as u128,
+            0,
+            "block-action input must acknowledge server data"
+        );
+        assert_ne!(
+            flags & PlayerAuthInputFlags::PerformBlockActions as u128,
+            0,
+            "block-action input must carry block actions"
+        );
+        assert_eq!(
+            flags & PlayerAuthInputFlags::MissedSwing as u128,
+            0,
+            "block breaking should not be encoded as an air swing"
         );
     }
 
@@ -5558,6 +6082,29 @@ mod tests {
         };
 
         assert!(is_menu_selector_item(&item));
+        assert_eq!(
+            normal_placeable_rejection_reason(item.container_id, item.item_id, &item.item_bytes),
+            Some("server_ui_item")
+        );
+        assert!(held_inventory_candidate_from_observed(&item).is_none());
+    }
+
+    #[test]
+    fn donutsmp_spawn_hotbar_rtp_item_is_menu_not_placeable() {
+        let item = ObservedInventoryItem {
+            container_id: 0,
+            slot: 0,
+            item_id: 303,
+            stack_id: Some(2),
+            container_type: Some(0),
+            dynamic_container_id: None,
+            item_bytes: vec![0x01; 19],
+        };
+
+        let target = menu_click_target_from_observed(&item).expect("rtp fallback menu target");
+        assert_eq!(target.slot, 0);
+        assert_eq!(target.item_id, 303);
+        assert_eq!(target.priority, 80);
         assert_eq!(
             normal_placeable_rejection_reason(item.container_id, item.item_id, &item.item_bytes),
             Some("server_ui_item")
@@ -6066,6 +6613,40 @@ mod tests {
     }
 
     #[test]
+    fn player_inventory_utility_item_is_not_placeable_candidate() {
+        let item = ObservedInventoryItem {
+            container_id: 0,
+            slot: 1,
+            item_id: 343,
+            stack_id: Some(3),
+            container_type: None,
+            dynamic_container_id: None,
+            item_bytes: vec![0x01; 37],
+        };
+
+        assert_eq!(
+            normal_placeable_rejection_reason(item.container_id, item.item_id, &item.item_bytes),
+            Some("server_ui_item")
+        );
+        assert!(held_inventory_candidate_from_observed(&item).is_none());
+    }
+
+    #[test]
+    fn observed_modern_block_items_are_placeable_candidates_without_menu_nbt() {
+        for item_id in [303, 306, 320, 343, 371, 372, 373, 374, 422] {
+            assert!(
+                is_probably_placeable_block_item(item_id),
+                "modern Bedrock block item id {item_id} should be considered placeable"
+            );
+            assert_eq!(
+                normal_item_entity_rejection_reason(item_id, &[0x01; 18]),
+                None,
+                "plain item entity {item_id} should be usable for pickup/place validation"
+            );
+        }
+    }
+
+    #[test]
     fn stone_runtime_is_not_hand_droppable_placeable_target() {
         assert!(
             !is_hand_droppable_placeable_runtime_id(2532),
@@ -6087,14 +6668,22 @@ mod tests {
     #[test]
     fn observed_donutsmp_terrain_runtimes_are_validation_candidates() {
         for runtime_id in [
-            3758, 10812, 12970, 22010, 24356, 25040, 25060, 26228, 27644, 27646, 27648, 27654,
-            27656, 28878, 31612,
+            3758, 10812, 12970, 22010, 24356, 25040, 26228, 27644, 27646, 27648, 27654, 27656,
+            28878,
         ] {
             assert!(
                 is_normal_validation_placeable_drop_runtime_id(runtime_id),
                 "runtime_id {runtime_id} should be eligible for server-confirmed break/pickup/place validation"
             );
         }
+        assert!(
+            !is_normal_validation_placeable_drop_runtime_id(31612),
+            "runtime_id 31612 failed repeated DonutSMP break confirmation and must stay excluded"
+        );
+        assert!(
+            !is_normal_validation_placeable_drop_runtime_id(25060),
+            "runtime_id 25060 failed repeated DonutSMP break confirmation and must stay excluded"
+        );
         assert!(
             !is_normal_validation_placeable_drop_runtime_id(SPRUCE_BUTTON_CEILING_RUNTIME_ID),
             "protected DonutSMP button/update marker terrain remains excluded"
@@ -6136,7 +6725,7 @@ mod tests {
             y: 47,
             z: 27_469,
         };
-        let geometry = place_geometry_for_break_target(target, Some(25060));
+        let geometry = place_geometry_for_break_target(target, Some(26228));
 
         assert_eq!(
             geometry.base,
@@ -6332,6 +6921,204 @@ mod tests {
         assert!(frame.position.0 > -16_259.5);
         assert_eq!(frame.position.1, 43.0);
         assert!(frame.position.2 < 27_470.5);
+    }
+
+    #[test]
+    fn far_normal_target_can_be_walked_toward_with_extended_limits() {
+        let mut movement =
+            MovementValidation::new(ActorRuntimeID(1), 0, (0.0, 64.0, 0.0), (0.0, 0.0));
+        movement.remember_observed_solid_block(BlockTarget { x: 48, y: 63, z: 0 }, 13114);
+
+        assert!(!movement.has_sampled_placeable_drop_target());
+        assert!(!movement.has_approachable_placeable_drop_target());
+        assert!(movement.has_walkable_placeable_drop_target());
+        assert!(movement.next_gameplay_approach_frame().is_none());
+
+        let frame = movement
+            .next_gameplay_approach_frame_with_limits(128.0, 16.0)
+            .expect("extended approach frame");
+        assert!(frame.position.0 > 0.0);
+        assert_eq!(frame.position.1, 64.0);
+        assert!(frame.position.2 > 0.0);
+        assert!(frame.position.2 < 0.02);
+    }
+
+    #[test]
+    fn far_placeable_target_defers_terminal_failure_until_approach() {
+        let mut movement =
+            MovementValidation::new(ActorRuntimeID(1), 0, (0.0, 64.0, 0.0), (0.0, 0.0));
+        movement.remember_observed_solid_block(BlockTarget { x: 48, y: 63, z: 0 }, 13114);
+
+        movement.ensure_gameplay_targets();
+
+        assert_eq!(movement.break_target, None);
+        assert!(!movement.pickup_terminal_failed);
+        assert!(movement.has_walkable_placeable_drop_target());
+    }
+
+    #[test]
+    fn vertically_unreachable_target_is_not_walkable() {
+        let mut movement =
+            MovementValidation::new(ActorRuntimeID(1), 0, (10.5, 74.0, -10.5), (0.0, 0.0));
+        movement.remember_observed_solid_block(
+            BlockTarget {
+                x: 10,
+                y: 63,
+                z: -11,
+            },
+            13114,
+        );
+
+        assert!(!movement.has_walkable_placeable_drop_target());
+        assert!(
+            movement
+                .next_gameplay_approach_frame_with_limits(128.0, GAMEPLAY_BREAK_REACH_VERTICAL)
+                .is_none(),
+            "horizontal-only approach cannot resolve a target far below the player"
+        );
+    }
+
+    #[test]
+    fn block_break_aim_points_at_target_center() {
+        let mut movement =
+            MovementValidation::new(ActorRuntimeID(1), 0, (0.5, 64.0, 0.5), (0.0, 0.0));
+
+        movement.aim_at_block_target(BlockTarget { x: 0, y: 63, z: -2 });
+
+        assert!(movement.yaw.abs() >= 179.0);
+        assert!(
+            movement.pitch > 35.0,
+            "lower block target should require a downward pitch, got {}",
+            movement.pitch
+        );
+    }
+
+    #[test]
+    fn break_failure_retry_clears_probe_state_for_far_target_approach() {
+        let near = BlockTarget { x: 1, y: 63, z: 0 };
+        let far = BlockTarget { x: 48, y: 63, z: 0 };
+        let mut movement =
+            MovementValidation::new(ActorRuntimeID(1), 0, (0.0, 64.0, 0.0), (0.0, 0.0));
+        movement.remember_observed_solid_block(near, 12178);
+        movement.remember_observed_solid_block(far, 13114);
+        movement.ensure_gameplay_targets();
+        movement.gameplay_probe_sent = true;
+        movement.gameplay_probe_sent_at = Some(Instant::now());
+        movement.gameplay_timeout_reported = true;
+        movement.break_probe_started_at = Some(Instant::now());
+
+        assert_eq!(movement.break_target, Some(near));
+        assert!(movement.prepare_next_break_target_after_break_failure());
+
+        assert_eq!(movement.break_target, None);
+        assert!(!movement.gameplay_probe_sent);
+        assert_eq!(movement.gameplay_probe_sent_at, None);
+        assert!(!movement.gameplay_timeout_reported);
+        assert!(!movement.pickup_terminal_failed);
+        assert!(movement.has_walkable_placeable_drop_target());
+    }
+
+    #[test]
+    fn break_failure_retry_preserves_collected_held_item() {
+        let near = BlockTarget { x: 1, y: 63, z: 0 };
+        let far = BlockTarget { x: 48, y: 63, z: 0 };
+        let mut movement =
+            MovementValidation::new(ActorRuntimeID(1), 0, (0.0, 64.0, 0.0), (0.0, 0.0));
+        movement.held_item = Some(HeldInventoryItem {
+            container_id: 0,
+            slot: 2,
+            item_id: 422,
+            item: None,
+            item_bytes: vec![0x06, 0x01, 0x00],
+        });
+        movement.held_item_equipped = true;
+        movement.remember_observed_solid_block(near, 2620);
+        movement.remember_observed_solid_block(far, 2620);
+        movement.ensure_gameplay_targets();
+        movement.gameplay_probe_sent = true;
+        movement.gameplay_probe_sent_at = Some(Instant::now());
+        movement.break_probe_started_at = Some(Instant::now());
+
+        assert!(movement.prepare_next_break_target_after_break_failure());
+
+        let held_item = movement.held_item.expect("held item must survive retry");
+        assert_eq!(held_item.item_id, 422);
+        assert_eq!(held_item.slot, 2);
+        assert!(movement.held_item_equipped);
+        assert!(!movement.gameplay_probe_sent);
+    }
+
+    #[test]
+    fn rtp_retry_after_target_failure_clears_stale_gameplay_state() {
+        let mut movement =
+            MovementValidation::new(ActorRuntimeID(1), 0, (0.0, 64.0, 0.0), (0.0, 0.0));
+        movement.rtp_command_attempts = 1;
+        movement.rtp_command_sent = true;
+        movement.rtp_wait_done = true;
+        movement.inventory_probe_sent = true;
+        movement.gameplay_probe_sent = true;
+        movement.pickup_terminal_failed = true;
+        movement.break_target = Some(BlockTarget { x: 1, y: 63, z: 0 });
+        movement.rejected_break_runtime_ids.push(25060);
+        movement.remember_observed_solid_block(
+            BlockTarget {
+                x: 500,
+                y: 63,
+                z: 0,
+            },
+            13114,
+        );
+
+        assert!(movement.reset_for_rtp_retry_after_target_failure("test"));
+
+        assert_eq!(movement.rtp_command_attempts, 1);
+        assert!(!movement.rtp_command_sent);
+        assert!(!movement.rtp_wait_done);
+        assert!(!movement.inventory_probe_sent);
+        assert!(!movement.gameplay_probe_sent);
+        assert!(!movement.pickup_terminal_failed);
+        assert_eq!(movement.break_target, None);
+        assert_eq!(movement.rejected_break_runtime_ids, vec![25060]);
+        assert!(movement.observed_solid_blocks.is_empty());
+    }
+
+    #[test]
+    fn rtp_retry_after_target_failure_is_bounded() {
+        let mut movement =
+            MovementValidation::new(ActorRuntimeID(1), 0, (0.0, 64.0, 0.0), (0.0, 0.0));
+        movement.rtp_command_attempts = RTP_MAX_COMMAND_ATTEMPTS;
+
+        assert!(!movement.reset_for_rtp_retry_after_target_failure("test"));
+    }
+
+    #[test]
+    fn break_failure_with_only_far_stale_targets_retries_rtp() {
+        let near = BlockTarget { x: 1, y: 63, z: 0 };
+        let stale_far = BlockTarget {
+            x: 500,
+            y: 63,
+            z: 0,
+        };
+        let mut movement =
+            MovementValidation::new(ActorRuntimeID(1), 0, (0.0, 64.0, 0.0), (0.0, 0.0));
+        movement.rtp_command_sent = true;
+        movement.rtp_wait_done = true;
+        movement.rtp_command_attempts = 1;
+        movement.inventory_probe_sent = true;
+        movement.gameplay_probe_sent = true;
+        movement.remember_observed_solid_block(near, 13114);
+        movement.remember_observed_solid_block(stale_far, 9852);
+        movement.ensure_gameplay_targets();
+
+        assert_eq!(movement.break_target, Some(near));
+        assert!(movement.prepare_next_break_target_after_break_failure());
+
+        assert_eq!(movement.rtp_command_attempts, 1);
+        assert!(!movement.rtp_command_sent);
+        assert!(!movement.inventory_probe_sent);
+        assert!(movement.observed_solid_blocks.is_empty());
+        assert_eq!(movement.break_target, None);
+        assert!(!movement.pickup_terminal_failed);
     }
 
     #[test]
@@ -6698,6 +7485,127 @@ mod tests {
         assert!(!movement.rtp_terrain_position_hint_received);
         assert_eq!(movement.last_sent_position, origin);
         assert_eq!(movement.last_server_position, None);
+    }
+
+    #[test]
+    fn normal_item_entity_initializes_placeholder_start_position() {
+        let origin = (0.0, 69.0, 0.0);
+        let mut movement = MovementValidation::new(ActorRuntimeID(1), 0, origin, (0.0, 0.0));
+        let entity = ObservedItemEntity {
+            entity_id: 52,
+            runtime_entity_id: 52,
+            item_id: 422,
+            stack_id: None,
+            position: (117_215.469, 72.125, -160_100.750),
+            velocity: (0.0, 0.0, 0.0),
+            item_bytes: vec![0x06, 0x01, 0x00],
+        };
+
+        movement.record_observed_item_entity(&entity);
+
+        assert_eq!(movement.last_sent_position, entity.position);
+        assert_eq!(movement.last_server_position, None);
+        assert_eq!(movement.spawn_position, entity.position);
+        assert!(movement.observed_item_entity.is_some());
+    }
+
+    #[test]
+    fn item_entity_position_hint_does_not_rewind_active_movement() {
+        let origin = (0.0, 69.0, 0.0);
+        let mut movement = MovementValidation::new(ActorRuntimeID(1), 0, origin, (0.0, 0.0));
+        let _ = movement.next_frame();
+        let entity = ObservedItemEntity {
+            entity_id: 52,
+            runtime_entity_id: 52,
+            item_id: 422,
+            stack_id: None,
+            position: (117_215.469, 72.125, -160_100.750),
+            velocity: (0.0, 0.0, 0.0),
+            item_bytes: vec![0x06, 0x01, 0x00],
+        };
+
+        movement.record_observed_item_entity(&entity);
+
+        assert_ne!(movement.last_sent_position, entity.position);
+        assert_eq!(movement.last_server_position, None);
+        assert!(movement.observed_item_entity.is_some());
+    }
+
+    #[test]
+    fn prebreak_pickup_is_ready_for_existing_normal_item_entity() {
+        let origin = (0.0, 69.0, 0.0);
+        let mut movement = MovementValidation::new(ActorRuntimeID(1), 0, origin, (0.0, 0.0));
+        let entity = ObservedItemEntity {
+            entity_id: 52,
+            runtime_entity_id: 52,
+            item_id: 422,
+            stack_id: None,
+            position: (117_215.469, 72.125, -160_100.750),
+            velocity: (0.0, 0.0, 0.0),
+            item_bytes: vec![0x06, 0x01, 0x00],
+        };
+
+        movement.record_observed_item_entity(&entity);
+
+        assert!(movement.ready_for_prebreak_pickup());
+        assert_eq!(
+            movement.pickup_target_position(),
+            Some((entity.position.0, entity.position.1, entity.position.2))
+        );
+    }
+
+    #[test]
+    fn prebreak_pickup_failure_selects_next_normal_item_entity() {
+        let origin = (0.0, 69.0, 0.0);
+        let mut movement = MovementValidation::new(ActorRuntimeID(1), 0, origin, (0.0, 0.0));
+        let first = ObservedItemEntity {
+            entity_id: 4,
+            runtime_entity_id: 4,
+            item_id: 306,
+            stack_id: None,
+            position: (100.0, 64.0, 100.0),
+            velocity: (0.0, 0.0, 0.0),
+            item_bytes: vec![0x06, 0x01, 0x00],
+        };
+        let second = ObservedItemEntity {
+            entity_id: 5,
+            runtime_entity_id: 5,
+            item_id: 422,
+            stack_id: None,
+            position: (112.0, 64.0, 100.0),
+            velocity: (0.0, 0.0, 0.0),
+            item_bytes: vec![0x06, 0x01, 0x00],
+        };
+        movement.record_observed_item_entity(&first);
+        movement.record_observed_item_entity(&second);
+        movement.pickup_prebreak = true;
+        movement.pickup_probe_started_at = Some(Instant::now());
+        movement.pickup_failed_reported = true;
+
+        assert_eq!(
+            movement
+                .observed_item_entity
+                .as_ref()
+                .map(|item| item.runtime_id),
+            Some(first.runtime_entity_id)
+        );
+        assert!(movement.prepare_next_item_entity_after_pickup_failure());
+
+        assert_eq!(
+            movement
+                .observed_item_entity
+                .as_ref()
+                .map(|item| item.runtime_id),
+            Some(second.runtime_entity_id)
+        );
+        assert!(
+            movement
+                .rejected_item_entity_runtime_ids
+                .contains(&first.runtime_entity_id)
+        );
+        assert_eq!(movement.pickup_probe_started_at, None);
+        assert!(!movement.pickup_failed_reported);
+        assert!(!movement.pickup_terminal_failed);
     }
 
     #[test]

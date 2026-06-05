@@ -434,7 +434,7 @@ fn client_data_claims(
 
 fn bedrock_protocol_skin_payload() -> EngineResult<serde_json::Map<String, Value>> {
     let value: Value =
-        serde_json::from_str(include_str!("../../assets/bedrock_1_21_70_steve.json"))?;
+        serde_json::from_str(include_str!("../../../assets/bedrock_1_21_70_steve.json"))?;
     value.as_object().cloned().ok_or_else(|| {
         EngineError::Bedrock("bedrock-protocol skin asset must be a JSON object".to_string())
     })

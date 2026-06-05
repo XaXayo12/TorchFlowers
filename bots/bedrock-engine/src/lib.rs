@@ -10,6 +10,7 @@
     clippy::vec_init_then_push
 )]
 pub mod api;
+#[path = "bedrock/auth/mod.rs"]
 pub mod auth;
 pub mod bedrock;
 pub mod bot;
