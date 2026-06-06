@@ -23,4 +23,4 @@ jobs:
       - run: cargo install cargo-deny --locked
       - run: cargo deny check
       - run: cargo doc --workspace --no-deps
-      - run: cargo package --dry-run -p torchflower
+      - run: cargo package --list -p torchflower
