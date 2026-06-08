@@ -3539,7 +3539,8 @@ mod tests {
         let payload = codec::encode_packets(&[packet], None, None, ProtoVersion::V898).unwrap();
 
         assert_eq!(payload.len(), 7);
-        assert_eq!(payload, vec![0x06, 0xc1, 0x01, 0x82, 0x03, 0x00, 0x00]);
+        // 898 = 0x00000382, encoded as big-endian u32 -> [0x00, 0x00, 0x03, 0x82]
+        assert_eq!(payload, vec![0x06, 0xc1, 0x01, 0x00, 0x00, 0x03, 0x82]);
     }
 
     #[test]
@@ -3548,6 +3549,7 @@ mod tests {
         env::remove_var(TORCHFLOWER_BEDROCK_PROTOCOL_VERSION_ENV);
         env::remove_var(LEGACY_BEDROCK_PROTOCOL_VERSION_ENV);
 
+        // Test: default fallback
         let resolved = BedrockProtocolOptions::resolve(None).unwrap();
         assert_eq!(
             resolved.requested_protocol_version,
@@ -3557,12 +3559,14 @@ mod tests {
         assert_eq!(resolved.source, BedrockProtocolVersionSource::Default);
         assert!(resolved.codec_exact_match());
 
+        // Test: legacy env var fallback
         env::set_var(LEGACY_BEDROCK_PROTOCOL_VERSION_ENV, "975");
         let resolved = BedrockProtocolOptions::resolve(None).unwrap();
         assert_eq!(resolved.requested_protocol_version, 975);
         assert_eq!(resolved.codec_protocol_version, ProtoVersion::V975);
         assert_eq!(resolved.source, BedrockProtocolVersionSource::LegacyEnv);
 
+        // Test: TORCHFLOWER_BEDROCK_PROTOCOL_VERSION beats BEDROCK_PROTOCOL_VERSION
         env::set_var(TORCHFLOWER_BEDROCK_PROTOCOL_VERSION_ENV, "766");
         let resolved = BedrockProtocolOptions::resolve(None).unwrap();
         assert_eq!(resolved.requested_protocol_version, 766);
@@ -3572,21 +3576,50 @@ mod tests {
             BedrockProtocolVersionSource::TorchflowerEnv
         );
 
+        // Test: config protocol beats env protocol
         let resolved = BedrockProtocolOptions::resolve(Some(662)).unwrap();
         assert_eq!(resolved.requested_protocol_version, 662);
         assert_eq!(resolved.codec_protocol_version, ProtoVersion::V662);
         assert_eq!(resolved.source, BedrockProtocolVersionSource::Config);
 
+        // Test: unknown unsupported protocol fallback to codec V898
         let resolved = BedrockProtocolOptions::from_config(899).unwrap();
         assert_eq!(resolved.requested_protocol_version, 899);
         assert_eq!(resolved.codec_protocol_version, ProtoVersion::V898);
         assert!(!resolved.codec_exact_match());
 
+        // Test: invalid zero protocol version
         env::set_var(TORCHFLOWER_BEDROCK_PROTOCOL_VERSION_ENV, "0");
+        assert!(BedrockProtocolOptions::resolve(None).is_err());
+
+        // Test: invalid negative protocol version
+        env::set_var(TORCHFLOWER_BEDROCK_PROTOCOL_VERSION_ENV, "-5");
         assert!(BedrockProtocolOptions::resolve(None).is_err());
 
         env::remove_var(TORCHFLOWER_BEDROCK_PROTOCOL_VERSION_ENV);
         env::remove_var(LEGACY_BEDROCK_PROTOCOL_VERSION_ENV);
+    }
+
+    #[test]
+    fn early_disconnect_error_message_formatting() {
+        let protocol_ver = 999;
+        let codec_protocol_ver = 898;
+        let reason = 2;
+        let hide_reason = false;
+        let message = Some("Banned".to_string());
+
+        let err_msg = format!(
+            "server did not return NetworkSettingsPacket; received early Disconnect before NetworkSettings. \
+             protocol_version={}. codec_protocol_version={}. reason={}. hide_reason={}. message={:?}. \
+             This usually means unsupported protocol version, invalid RequestNetworkSettings encoding/framing, or server rejected the client before login.",
+            protocol_ver, codec_protocol_ver, reason, hide_reason, message
+        );
+
+        assert!(err_msg.contains("protocol_version=999"));
+        assert!(err_msg.contains("codec_protocol_version=898"));
+        assert!(err_msg.contains("reason=2"));
+        assert!(err_msg.contains("hide_reason=false"));
+        assert!(err_msg.contains("message=Some(\"Banned\")"));
     }
 
     #[test]

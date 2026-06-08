@@ -61,14 +61,17 @@ pub struct RequestNetworkSettingsPacket {
 impl PacketCodec for RequestNetworkSettingsPacket {
     fn encode(&self, _version: ProtocolVersion) -> Result<Bytes, ProtoError> {
         let mut out = BytesMut::new();
-        out.put_u32_le(self.protocol_version);
+        // Bedrock protocol: protocol_version is big-endian unsigned 32-bit
+        out.put_slice(&self.protocol_version.to_be_bytes());
         Ok(out.freeze())
     }
 
     fn decode(buf: &mut Bytes, _version: ProtocolVersion) -> Result<Self, ProtoError> {
         ensure_remaining(buf, 4, "request network settings protocol version")?;
+        let mut bytes4 = [0u8; 4];
+        buf.copy_to_slice(&mut bytes4);
         Ok(Self {
-            protocol_version: buf.get_u32_le(),
+            protocol_version: u32::from_be_bytes(bytes4),
         })
     }
 }

@@ -197,7 +197,9 @@ impl Packet {
         let mut buf = BytesMut::new();
         match self {
             Self::RequestNetworkSettings(p) => {
-                buf.put_i32_le(p.protocol_version);
+                // Bedrock protocol: protocol_version is big-endian unsigned 32-bit
+                // (per PMMP BedrockProtocol reference: BE::writeUnsignedInt)
+                buf.put_slice(&(p.protocol_version as u32).to_be_bytes());
             }
             Self::NetworkSettings(p) => {
                 buf.put_u16_le(p.compression_threshold);
@@ -485,12 +487,15 @@ impl Packet {
                 if buf.remaining() < 4 {
                     return Err(CoreError::UnexpectedEof("RequestNetworkSettings"));
                 }
-                let protocol_version = buf.get_i32_le();
+                // Bedrock protocol: protocol_version is big-endian unsigned 32-bit
+                let mut bytes4 = [0u8; 4];
+                buf.copy_to_slice(&mut bytes4);
+                let protocol_version = u32::from_be_bytes(bytes4) as i32;
                 Ok(Self::RequestNetworkSettings(RequestNetworkSettingsPacket {
                     protocol_version,
                 }))
             }
-            0xc2 => {
+            0xc2 | 143 => {
                 if buf.remaining() < 5 {
                     return Err(CoreError::UnexpectedEof("NetworkSettings"));
                 }
@@ -1481,17 +1486,28 @@ mod tests {
     }
 
     #[test]
-    fn request_network_settings_body_encoding_is_little_endian_i32() {
+    fn request_network_settings_body_encoding_is_big_endian_u32() {
+        // Bedrock protocol encodes RequestNetworkSettings protocol_version as
+        // a big-endian unsigned 32-bit integer (per PMMP: BE::writeUnsignedInt).
+        // 898  = 0x00000382 → big-endian bytes: 00 00 03 82
+        // 975  = 0x000003CF → big-endian bytes: 00 00 03 CF
         let packet = Packet::RequestNetworkSettings(RequestNetworkSettingsPacket {
             protocol_version: 898,
         });
         let bytes = packet.encode(ProtocolVersion::V898).unwrap();
-        assert_eq!(&bytes[..], &[0x82, 0x03, 0x00, 0x00]);
+        assert_eq!(&bytes[..], &[0x00, 0x00, 0x03, 0x82]);
 
         let packet = Packet::RequestNetworkSettings(RequestNetworkSettingsPacket {
             protocol_version: 975,
         });
         let bytes = packet.encode(ProtocolVersion::V975).unwrap();
-        assert_eq!(&bytes[..], &[0xcf, 0x03, 0x00, 0x00]);
+        assert_eq!(&bytes[..], &[0x00, 0x00, 0x03, 0xcf]);
+
+        // Roundtrip decode must produce the same protocol_version
+        use bytes::Bytes;
+        let encoded = packet.encode(ProtocolVersion::V975).unwrap();
+        let mut as_bytes = Bytes::copy_from_slice(&encoded);
+        let decoded = Packet::decode(0xc1, &mut as_bytes, ProtocolVersion::V975).unwrap();
+        assert!(matches!(decoded, Packet::RequestNetworkSettings(p) if p.protocol_version == 975));
     }
 }

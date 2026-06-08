@@ -67,7 +67,7 @@ impl RaknetClientAdapter {
         match payload.split_first() {
             Some((id, rest)) if *id == RAKNET_GAMEPACKET_ID => Ok(rest.to_vec()),
             Some((id, _)) => {
-                eprintln!("[TRANSPORT_RECV] unexpected packet id={:#04x}", id);
+                tracing::warn!("[TRANSPORT_RECV] unexpected packet id={:#04x}", id);
                 Err(EngineError::Bedrock(format!(
                     "unexpected RakNet payload id {id:#04x}"
                 )))

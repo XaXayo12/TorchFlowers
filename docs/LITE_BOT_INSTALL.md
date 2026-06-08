@@ -128,7 +128,7 @@ You can set the protocol version directly in `bots.toml` under the `[server]` se
 [server]
 host = "127.0.0.1"
 port = 19132
-protocol_version = XXX
+# protocol_version = 898 # optional override
 ```
 
 To test a bounded list for NetworkSettings negotiation, omit `protocol_version` and use:
