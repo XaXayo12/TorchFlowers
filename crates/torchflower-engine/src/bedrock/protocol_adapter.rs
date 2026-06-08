@@ -435,17 +435,17 @@ impl BedrockProtocolAdapter {
                 Some(session.playfab_id.as_str()),
             )?,
         };
-        eprintln!(
+        tracing::info!(
             "[LOGIN] sending login: chain_count={} connection_request_len={} skin_len={}",
             session.chain.chain.len(),
             connection_request.len(),
             session.chain.skin.len()
         );
-        eprintln!(
+        tracing::debug!(
             "[LOGIN] fingerprint: {:?}",
             MinecraftAuth::connection_request_fingerprint(&connection_request)?
         );
-        eprintln!(
+        tracing::debug!(
             "[LOGIN] chain_fingerprint: {}",
             MinecraftAuth::bedrock_chain_fingerprint(&session.chain, login_token)?
         );
@@ -493,6 +493,77 @@ impl BedrockProtocolAdapter {
             .map_err(|err| EngineError::Bedrock(format!("encode Login packet batch: {err}")))
     }
 
+    fn play_status_to_string(status: i32) -> &'static str {
+        match status {
+            0 => "LoginSuccess",
+            1 => "FailedClient (outdated client)",
+            2 => "FailedServer (outdated server)",
+            3 => "PlayerSpawn",
+            4 => "InvalidTenant",
+            5 => "EditionMismatchEduToVanilla",
+            6 => "EditionMismatchVanillaToEdu",
+            7 => "FailedMaxPlayers",
+            8 => "FailedServerFull",
+            _ => "Unknown",
+        }
+    }
+
+    fn log_handshake_packet(packet: &BedrockProto) {
+        match packet {
+            BedrockProto::ServerToClientHandshake(ref handshake) => {
+                tracing::info!(
+                    "[LOGIN_HANDSHAKE] rx ServerToClientHandshake (ID={:#04x}): token_len={}",
+                    packet.id(),
+                    handshake.handshake_web_token.len()
+                );
+            }
+            BedrockProto::PlayStatus(ref p) => {
+                tracing::info!(
+                    "[LOGIN_HANDSHAKE] rx PlayStatus (ID={:#04x}): status={} ({})",
+                    packet.id(),
+                    p.status,
+                    Self::play_status_to_string(p.status)
+                );
+            }
+            BedrockProto::Disconnect(ref disc) => {
+                tracing::warn!(
+                    "[LOGIN_HANDSHAKE] rx Disconnect (ID={:#04x}): reason={}, hide_reason={}, message={:?}",
+                    packet.id(),
+                    disc.reason,
+                    disc.hide_reason,
+                    disc.message
+                );
+            }
+            BedrockProto::ResourcePacksInfo(ref info) => {
+                tracing::info!(
+                    "[LOGIN_HANDSHAKE] rx ResourcePacksInfo (ID={:#04x}): must_accept={}, has_addons={}, behavior_packs_len={}, resource_packs_len={}",
+                    packet.id(),
+                    info.must_accept,
+                    info.has_addons,
+                    info.behavior_packs.len(),
+                    info.resource_packs.len()
+                );
+            }
+            BedrockProto::ResourcePackStack(ref stack) => {
+                tracing::info!(
+                    "[LOGIN_HANDSHAKE] rx ResourcePackStack (ID={:#04x}): must_accept={}, behavior_packs_len={}, resource_packs_len={}, game_version={}",
+                    packet.id(),
+                    stack.must_accept,
+                    stack.behavior_packs.len(),
+                    stack.resource_packs.len(),
+                    &stack.game_version
+                );
+            }
+            other => {
+                tracing::info!(
+                    "[LOGIN_HANDSHAKE] rx other packet (ID={:#04x}): {:?}",
+                    other.id(),
+                    other
+                );
+            }
+        }
+    }
+
     pub async fn complete_login_handshake(
         &mut self,
         chain: &BedrockJwtChain,
@@ -500,10 +571,19 @@ impl BedrockProtocolAdapter {
         let mut pending = Vec::new();
         let mut encryption_enabled = false;
         loop {
-            for packet in self.recv().await? {
+            let recv_res = self.recv().await;
+            let packets = match recv_res {
+                Ok(p) => p,
+                Err(err) => {
+                    return Err(EngineError::Bedrock(format!(
+                        "login handshake packet decompression/framing error: {err}"
+                    )));
+                }
+            };
+            for packet in packets {
+                Self::log_handshake_packet(&packet);
                 match packet {
                     BedrockProto::ServerToClientHandshake(handshake) => {
-                        eprintln!("[LOGIN_HANDSHAKE] rx ServerToClientHandshake");
                         self.encryption = Some(Self::derive_encryption_from_handshake(
                             chain,
                             &handshake.handshake_web_token,
@@ -514,11 +594,33 @@ impl BedrockProtocolAdapter {
                         .await?;
                         encryption_enabled = true;
                     }
+                    BedrockProto::PlayStatus(status_packet) => {
+                        if status_packet.status != 0 && status_packet.status != 3 {
+                            return Err(EngineError::Bedrock(format!(
+                                "Server returned PlayStatus failure: {} ({})",
+                                status_packet.status,
+                                Self::play_status_to_string(status_packet.status)
+                            )));
+                        }
+                        pending.push(BedrockProto::PlayStatus(status_packet));
+                    }
+                    BedrockProto::Disconnect(disc) => {
+                        if chain.xuid == "0" {
+                            return Err(EngineError::Bedrock(format!(
+                                "Server rejected offline/mock login (xuid=0). Real Xbox Live authentication is required. Disconnect reason={}, message={:?}",
+                                disc.reason,
+                                disc.message
+                            )));
+                        } else {
+                            return Err(EngineError::Bedrock(format!(
+                                "Server disconnected during login handshake. Reason: {}, HideReason: {}, Message: {:?}",
+                                disc.reason,
+                                disc.hide_reason,
+                                disc.message
+                            )));
+                        }
+                    }
                     other => {
-                        eprintln!(
-                            "[LOGIN_HANDSHAKE] rx other packet: {:?}",
-                            std::mem::discriminant(&other)
-                        );
                         pending.push(other);
                     }
                 }
@@ -4032,5 +4134,115 @@ mod tests {
             out.push(((value & 0x7f) | 0x80) as u8);
             value >>= 7;
         }
+    }
+
+    #[test]
+    fn play_status_string_representation() {
+        assert_eq!(
+            BedrockProtocolAdapter::play_status_to_string(0),
+            "LoginSuccess"
+        );
+        assert_eq!(
+            BedrockProtocolAdapter::play_status_to_string(1),
+            "FailedClient (outdated client)"
+        );
+        assert_eq!(
+            BedrockProtocolAdapter::play_status_to_string(2),
+            "FailedServer (outdated server)"
+        );
+        assert_eq!(
+            BedrockProtocolAdapter::play_status_to_string(3),
+            "PlayerSpawn"
+        );
+        assert_eq!(
+            BedrockProtocolAdapter::play_status_to_string(4),
+            "InvalidTenant"
+        );
+        assert_eq!(
+            BedrockProtocolAdapter::play_status_to_string(5),
+            "EditionMismatchEduToVanilla"
+        );
+        assert_eq!(
+            BedrockProtocolAdapter::play_status_to_string(6),
+            "EditionMismatchVanillaToEdu"
+        );
+        assert_eq!(
+            BedrockProtocolAdapter::play_status_to_string(7),
+            "FailedMaxPlayers"
+        );
+        assert_eq!(
+            BedrockProtocolAdapter::play_status_to_string(8),
+            "FailedServerFull"
+        );
+        assert_eq!(BedrockProtocolAdapter::play_status_to_string(99), "Unknown");
+    }
+
+    #[test]
+    fn login_handshake_play_status_failure_formatting() {
+        let status = 1;
+        let status_str = BedrockProtocolAdapter::play_status_to_string(status);
+        let err_msg = format!(
+            "Server returned PlayStatus failure: {} ({})",
+            status, status_str
+        );
+        assert!(err_msg.contains("PlayStatus failure"));
+        assert!(err_msg.contains("FailedClient (outdated client)"));
+    }
+
+    #[test]
+    fn login_handshake_disconnect_offline_formatting() {
+        let disc = torchflower_protocol::DisconnectPacket {
+            reason: 0,
+            hide_reason: false,
+            message: Some("Invalid session".to_string()),
+        };
+        let err_msg = format!(
+            "Server rejected offline/mock login (xuid=0). Real Xbox Live authentication is required. Disconnect reason={}, message={:?}",
+            disc.reason,
+            disc.message
+        );
+        assert!(err_msg.contains("rejected offline/mock login"));
+        assert!(err_msg.contains("Real Xbox Live authentication is required"));
+        assert!(err_msg.contains("Disconnect reason=0"));
+        assert!(err_msg.contains("message=Some(\"Invalid session\")"));
+    }
+
+    #[test]
+    fn login_handshake_disconnect_online_formatting() {
+        let disc = torchflower_protocol::DisconnectPacket {
+            reason: 3,
+            hide_reason: true,
+            message: Some("Spamming".to_string()),
+        };
+        let err_msg = format!(
+            "Server disconnected during login handshake. Reason: {}, HideReason: {}, Message: {:?}",
+            disc.reason, disc.hide_reason, disc.message
+        );
+        assert!(err_msg.contains("Server disconnected during login handshake"));
+        assert!(err_msg.contains("Reason: 3"));
+        assert!(err_msg.contains("HideReason: true"));
+        assert!(err_msg.contains("Message: Some(\"Spamming\")"));
+    }
+
+    #[test]
+    fn login_handshake_packet_log_classification() {
+        use torchflower_protocol::{
+            DisconnectPacket, Packet, PlayStatusPacket, ServerToClientHandshakePacket,
+        };
+
+        let p1 = Packet::PlayStatus(PlayStatusPacket { status: 0 });
+        BedrockProtocolAdapter::log_handshake_packet(&p1);
+
+        let p2 = Packet::Disconnect(DisconnectPacket {
+            reason: 1,
+            hide_reason: false,
+            message: Some("Testing".to_string()),
+        });
+        BedrockProtocolAdapter::log_handshake_packet(&p2);
+
+        let p3 = Packet::ServerToClientHandshake(ServerToClientHandshakePacket {
+            handshake_web_token: "jwt_token".to_string(),
+        });
+        BedrockProtocolAdapter::log_handshake_packet(&p3);
     }
 }
