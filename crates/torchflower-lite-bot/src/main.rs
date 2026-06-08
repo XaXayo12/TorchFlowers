@@ -55,9 +55,24 @@ enum Command {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct AuthConfig {
+    cache_dir: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct AccountConfig {
+    id: String,
+    #[serde(rename = "type")]
+    account_type: Option<String>,
+    token_cache: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct LiteConfig {
     server: ServerConfig,
     runtime: RuntimeConfig,
+    auth: Option<AuthConfig>,
+    accounts: Option<Vec<AccountConfig>>,
     bots: Vec<BotConfig>,
 }
 
@@ -80,6 +95,7 @@ struct RuntimeConfig {
 struct BotConfig {
     username: Option<String>,
     account_id: Option<String>,
+    auth_mode: Option<String>,
     mode: Option<String>,
     reset_on_spawn: Option<bool>,
     script: Option<Vec<ScriptStep>>,
@@ -245,12 +261,15 @@ async fn run_config(path: PathBuf) -> Result<()> {
 
     let duration_secs = config.runtime.duration_secs.unwrap_or(0);
     let reconnect = config.runtime.reconnect.unwrap_or(true);
+    let config_dir = path.parent().map(|p| p.to_path_buf());
 
     let mut handles = Vec::with_capacity(config.bots.len());
 
-    for (index, bot) in config.bots.into_iter().enumerate() {
+    for (index, bot) in config.bots.clone().into_iter().enumerate() {
         let server = config.server.clone();
         let protocol_attempts = protocol_attempts.clone();
+        let config_dir_clone = config_dir.clone();
+        let lite_config_clone = config.clone();
         handles.push(tokio::spawn(async move {
             run_single_bot(
                 index,
@@ -259,6 +278,8 @@ async fn run_config(path: PathBuf) -> Result<()> {
                 bot,
                 duration_secs,
                 reconnect,
+                config_dir_clone,
+                lite_config_clone,
             )
             .await
         }));
@@ -491,6 +512,110 @@ impl InstantScript for ScriptedBot {
     }
 }
 
+fn is_fatal_auth_failure(error: &dyn std::fmt::Display) -> bool {
+    let msg = error.to_string();
+    msg.contains("Real Xbox Live authentication is required")
+        || msg.contains("rejected offline/mock login")
+        || msg.contains("Server disconnected during login handshake")
+        || msg.contains("Server returned PlayStatus failure")
+        || msg.contains("Session file not found or invalid")
+        || msg.contains("real auth mode requires a valid account/session source")
+}
+
+fn load_bot_session(
+    bot: &BotConfig,
+    config_dir: Option<&Path>,
+    lite_config: &LiteConfig,
+) -> Result<ProvisionedBedrockSession> {
+    let is_real_auth = if let Some(ref mode) = bot.auth_mode {
+        mode != "offline" && mode != "mock"
+    } else {
+        bot.account_id.is_some()
+    };
+
+    if is_real_auth {
+        let account_id = bot.account_id.as_deref().ok_or_else(|| {
+            anyhow::anyhow!("real auth mode requires a valid account/session source (account_id must be specified)")
+        })?;
+
+        // 1. Search in accounts list for custom token_cache
+        if let Some(accounts) = &lite_config.accounts {
+            if let Some(acc) = accounts.iter().find(|a| a.id == account_id) {
+                if let Some(ref token_cache) = acc.token_cache {
+                    let path = PathBuf::from(token_cache);
+                    let resolved_path = if path.is_absolute() {
+                        path
+                    } else if let Some(dir) = config_dir {
+                        dir.join(path)
+                    } else {
+                        path
+                    };
+                    if resolved_path.exists() {
+                        let content = fs::read_to_string(&resolved_path)?;
+                        let session: ProvisionedBedrockSession = serde_json::from_str(&content)
+                            .map_err(|e| {
+                                anyhow::anyhow!(
+                                    "failed to parse session cache file {:?}: {}",
+                                    resolved_path,
+                                    e
+                                )
+                            })?;
+                        return Ok(session);
+                    } else {
+                        bail!(
+                            "Session file not found or invalid at {:?} for account_id='{}'",
+                            resolved_path,
+                            account_id
+                        );
+                    }
+                }
+            }
+        }
+
+        // 2. Resolve cache dir
+        let cache_dir_str = lite_config
+            .auth
+            .as_ref()
+            .and_then(|a| a.cache_dir.clone())
+            .or_else(|| std::env::var("TORCHFLOWER_AUTH_CACHE_DIR").ok())
+            .unwrap_or_else(|| ".torchflower/accounts".to_string());
+
+        let cache_dir = PathBuf::from(cache_dir_str);
+        let resolved_cache_dir = if cache_dir.is_absolute() {
+            cache_dir
+        } else if let Some(dir) = config_dir {
+            dir.join(cache_dir)
+        } else {
+            cache_dir
+        };
+
+        let session_file = resolved_cache_dir.join(format!("{}.json", account_id));
+        if session_file.exists() {
+            let content = fs::read_to_string(&session_file)?;
+            let session: ProvisionedBedrockSession =
+                serde_json::from_str(&content).map_err(|e| {
+                    anyhow::anyhow!(
+                        "failed to parse session cache file {:?}: {}",
+                        session_file,
+                        e
+                    )
+                })?;
+            Ok(session)
+        } else {
+            bail!(
+                "Session file not found or invalid at {:?} for account_id='{}'",
+                session_file,
+                account_id
+            );
+        }
+    } else {
+        // Offline/mock mode
+        let name = bot.username.as_deref().unwrap_or("Bot_1");
+        create_offline_session(name)
+            .map_err(|e| anyhow::anyhow!("failed to create offline session: {}", e))
+    }
+}
+
 async fn run_single_bot(
     index: usize,
     server: ServerConfig,
@@ -498,6 +623,8 @@ async fn run_single_bot(
     bot: BotConfig,
     duration_secs: u64,
     reconnect: bool,
+    config_dir: Option<PathBuf>,
+    lite_config: LiteConfig,
 ) -> Result<()> {
     let name = bot
         .username
@@ -531,15 +658,11 @@ async fn run_single_bot(
                 total = protocol_attempts.len()
             );
 
-            let session = match create_offline_session(&name) {
+            let session = match load_bot_session(&bot, config_dir.as_deref(), &lite_config) {
                 Ok(s) => s,
                 Err(e) => {
-                    warn!("failed to create offline session for {name}: {e:?}");
-                    if !reconnect {
-                        break 'reconnect_loop;
-                    }
-                    tokio::time::sleep(Duration::from_secs(5)).await;
-                    continue 'reconnect_loop;
+                    warn!("bot {name} failed to load session: {e:?}");
+                    break 'reconnect_loop;
                 }
             };
 
@@ -583,6 +706,11 @@ async fn run_single_bot(
                     protocol = protocol_options.requested_protocol_version,
                     codec = protocol_options.codec_protocol_version_number()
                 );
+
+                if is_fatal_auth_failure(&e) {
+                    warn!("bot {name} fatal authentication or login rejection error: {e}. Stopping bot task.");
+                    break 'reconnect_loop;
+                }
 
                 if protocol_attempts.len() > 1 && is_network_settings_failure(&e) {
                     if attempt_index + 1 < protocol_attempts.len() {
@@ -706,9 +834,18 @@ log_level = "warn"
 duration_secs = 0
 reconnect = true
 
+# [auth]
+# cache_dir = ".torchflower/accounts"
+
+# [[accounts]]
+# id = "my-account"
+# token_cache = "accounts/my-account.json"
+
 [[bots]]
 username = "Bot_1"
 mode = "afk"
+# account_id = "my-account" # Set to enable real authenticated Xbox Live login
+# auth_mode = "microsoft" # Optional: force specific auth mode ("offline" or "microsoft")
 # Scripted bots reset to the first script step on every Spawn by default.
 # Set reset_on_spawn = false when a generic script should continue after respawn.
 
@@ -801,6 +938,8 @@ mod tests {
                 duration_secs: None,
                 reconnect: None,
             },
+            auth: None,
+            accounts: None,
             bots: vec![],
         };
         let resolved = resolve_protocol_attempts(&config.server).unwrap();
@@ -825,6 +964,8 @@ mod tests {
                 duration_secs: None,
                 reconnect: None,
             },
+            auth: None,
+            accounts: None,
             bots: vec![],
         };
         let resolved = resolve_protocol_attempts(&config_with_ver.server).unwrap();
@@ -843,6 +984,8 @@ mod tests {
                 duration_secs: None,
                 reconnect: None,
             },
+            auth: None,
+            accounts: None,
             bots: vec![],
         };
         let resolved = resolve_protocol_attempts(&config_with_versions.server).unwrap();
@@ -856,5 +999,87 @@ mod tests {
 
         std::env::remove_var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION");
         std::env::remove_var("BEDROCK_PROTOCOL_VERSION");
+    }
+
+    #[test]
+    fn test_fatal_auth_failure_classification() {
+        let err1 = anyhow::anyhow!("Server rejected offline/mock login (xuid=0). Real Xbox Live authentication is required. Configure an authenticated account using account_id/auth settings.");
+        let err2 = anyhow::anyhow!("some unrelated network issue");
+        let err3 = anyhow::anyhow!("Server disconnected during login handshake. Reason: 0");
+
+        assert!(is_fatal_auth_failure(&err1));
+        assert!(!is_fatal_auth_failure(&err2));
+        assert!(is_fatal_auth_failure(&err3));
+    }
+
+    #[test]
+    fn test_config_parsing_account_id_and_auth() {
+        let toml_text = r#"
+            [server]
+            host = "127.0.0.1"
+            port = 19132
+
+            [runtime]
+
+            [auth]
+            cache_dir = "custom/cache/dir"
+
+            [[accounts]]
+            id = "my-account"
+            token_cache = "my-account.json"
+
+            [[bots]]
+            account_id = "my-account"
+            auth_mode = "microsoft"
+            mode = "afk"
+        "#;
+
+        let config: LiteConfig = toml::from_str(toml_text).unwrap();
+        assert_eq!(
+            config.auth.as_ref().unwrap().cache_dir.as_deref(),
+            Some("custom/cache/dir")
+        );
+        assert_eq!(config.accounts.as_ref().unwrap()[0].id, "my-account");
+        assert_eq!(
+            config.accounts.as_ref().unwrap()[0].token_cache.as_deref(),
+            Some("my-account.json")
+        );
+        assert_eq!(config.bots[0].account_id.as_deref(), Some("my-account"));
+        assert_eq!(config.bots[0].auth_mode.as_deref(), Some("microsoft"));
+    }
+
+    #[test]
+    fn test_real_auth_requires_valid_session_source() {
+        let config = LiteConfig {
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 19132,
+                protocol_version: None,
+                protocol_versions: None,
+            },
+            runtime: RuntimeConfig {
+                log_level: None,
+                duration_secs: None,
+                reconnect: None,
+            },
+            auth: None,
+            accounts: None,
+            bots: vec![BotConfig {
+                username: None,
+                account_id: Some("missing-account".to_string()),
+                auth_mode: None,
+                mode: None,
+                reset_on_spawn: None,
+                script: None,
+            }],
+        };
+
+        // Attempting to load a bot session with account_id but no cache file should fail
+        let res = load_bot_session(&config.bots[0], None, &config);
+        assert!(res.is_err());
+        let err_msg = res.unwrap_err().to_string();
+        assert!(err_msg.contains("Session file not found or invalid"));
+        // Make sure it doesn't print any raw tokens
+        assert!(!err_msg.contains("Token"));
     }
 }

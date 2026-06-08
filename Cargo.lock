@@ -3961,6 +3961,7 @@ dependencies = [
  "clap",
  "rand 0.9.4",
  "serde",
+ "serde_json",
  "tokio",
  "toml",
  "torchflower-engine",

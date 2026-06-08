@@ -607,7 +607,7 @@ impl BedrockProtocolAdapter {
                     BedrockProto::Disconnect(disc) => {
                         if chain.xuid == "0" {
                             return Err(EngineError::Bedrock(format!(
-                                "Server rejected offline/mock login (xuid=0). Real Xbox Live authentication is required. Disconnect reason={}, message={:?}",
+                                "Server rejected offline/mock login (xuid=0). Real Xbox Live authentication is required. Configure an authenticated account using account_id/auth settings. Offline/mock username-only login is only for local/offline testing. Disconnect reason={}, message={:?}",
                                 disc.reason,
                                 disc.message
                             )));
