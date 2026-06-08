@@ -1,5 +1,4 @@
-# GitHub Actions workflow to release torchflower-lite-bot
-name: Release TorchFlower Lite Bot
+name: Release torchflower-lite-bot
 
 on:
   push:
@@ -8,6 +7,7 @@ on:
 
 jobs:
   build-linux:
+    name: Build Linux binary
     runs-on: ubuntu-latest
 
     strategy:
@@ -16,9 +16,11 @@ jobs:
           - x86_64-unknown-linux-gnu
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
 
@@ -38,7 +40,7 @@ jobs:
           name: torchflower-lite-bot-${{ matrix.target }}
           path: dist/*.tar.gz
 
-      - name: Create Release
+      - name: Upload GitHub release asset
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.tar.gz

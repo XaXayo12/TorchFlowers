@@ -1,35 +1,79 @@
-# Installation & Setup Guide: TorchFlower Lite Bot
+# TorchFlower Lite Bot Install Guide
 
-This guide explains how to install and configure `torchflower-lite-bot` on Windows and Linux VPS servers.
+This guide explains how to install and run `torchflower-lite-bot` without copying the full repository manually.
 
----
+## Linux install with Cargo
 
-## 1. Quick Install
+```bash
+sudo apt update
+sudo apt install -y build-essential curl git
 
-### Linux VPS One-Liner
-Install Rust and `torchflower-lite-bot` automatically with:
+curl https://sh.rustup.rs -sSf | sh -s -- -y
+source "$HOME/.cargo/env"
+
+cargo install --git https://github.com/Osamu-GWAD/TorchFlower \
+  --package torchflower-lite-bot \
+  --branch main \
+  --locked \
+  --force
+```
+
+Check install:
+
+```bash
+torchflower-lite-bot --help
+```
+
+## Linux install with script
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Osamu-GWAD/TorchFlower/main/scripts/install-lite-bot.sh | bash
 ```
 
-### Windows PowerShell One-Liner
-Run PowerShell as Administrator and execute:
+## Windows install
+
+Open PowerShell:
+
 ```powershell
-winget install --id Git.Git -e; winget install --id Rustlang.Rustup -e; winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
-# Restart your shell or refresh env, then run:
+winget install --id Git.Git -e
+winget install --id Rustlang.Rustup -e
+winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+```
+
+Restart PowerShell, then run:
+
+```powershell
 cargo install --git https://github.com/Osamu-GWAD/TorchFlower --package torchflower-lite-bot --branch main --locked --force
 ```
 
----
+If Windows cannot find the command:
 
-## 2. Configuration (`bots.toml`)
+```powershell
+$env:Path += ";$env:USERPROFILE\.cargo\bin"
+```
 
-Initialize a default config:
+## Create config
+
 ```bash
 torchflower-lite-bot init
 ```
 
-Edit the generated `bots.toml` to customize your bots:
+This creates `bots.toml`.
+
+## Run bots
+
+```bash
+torchflower-lite-bot run --config bots.toml
+```
+
+## Benchmark
+
+```bash
+torchflower-lite-bot bench --bots 100 --duration 10m
+```
+
+## Example config
+
 ```toml
 [server]
 host = "127.0.0.1"
@@ -37,41 +81,30 @@ port = 19132
 
 [runtime]
 log_level = "warn"
-duration_secs = 0     # 0 means run indefinitely
+duration_secs = 0
 reconnect = true
 
 [[bots]]
-username = "AFKBot_1"
+username = "Bot_1"
 mode = "kill-loop"
 
 [[bots]]
-username = "AFKBot_2"
+username = "Bot_2"
 mode = "kill-loop"
 ```
 
----
+## Low-resource settings
 
-## 3. Running
-
-To start the bots:
 ```bash
-torchflower-lite-bot run --config bots.toml
+RUST_LOG=warn
+BEDROCK_TRACE_PACKETS=0
+BEDROCK_TRACE_CHUNKS=0
+TORCHFLOWER_WORKERS=1
+TORCHFLOWER_THREAD_STACK_BYTES=262144
 ```
 
-To run a benchmark (e.g. 100 bots for 5 minutes):
-```bash
-torchflower-lite-bot bench --bots 100 --duration 5m
-```
+## Crates.io note
 
----
+The package can be installed from GitHub with `cargo install --git`.
 
-## 4. Environment Optimization for VPS
-
-To achieve maximum efficiency (<1 MB RSS per bot), set these environment variables before running:
-```bash
-export RUST_LOG=warn
-export BEDROCK_TRACE_PACKETS=0
-export BEDROCK_TRACE_CHUNKS=0
-export TORCHFLOWER_WORKERS=1
-export TORCHFLOWER_THREAD_STACK_BYTES=262144
-```
+For crates.io publishing, all internal TorchFlower path dependencies must be published or converted to versioned dependencies.

@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# Installer script for TorchFlower Lite Bot
 set -euo pipefail
 
 REPO_URL="https://github.com/Osamu-GWAD/TorchFlower"
@@ -13,7 +12,8 @@ if ! command -v cargo >/dev/null 2>&1; then
   source "$HOME/.cargo/env"
 fi
 
-echo "Installing $PACKAGE from $REPO_URL branch $BRANCH..."
+echo "Installing ${PACKAGE} from ${REPO_URL} branch ${BRANCH}..."
+
 cargo install \
   --git "$REPO_URL" \
   --package "$PACKAGE" \
@@ -21,6 +21,6 @@ cargo install \
   --locked \
   --force
 
-echo "Installed successfully:"
+echo "Installed:"
 command -v torchflower-lite-bot
 torchflower-lite-bot --help || true

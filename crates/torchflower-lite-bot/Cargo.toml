@@ -4,12 +4,13 @@ version = "0.1.0"
 edition = "2021"
 authors = ["TorchFlower Contributors"]
 license = "Apache-2.0"
-description = "Extremely lightweight Bedrock AFK bot runtime for TorchFlower"
+description = "Extremely lightweight Bedrock AFK bot runtime for TorchFlower."
 repository = "https://github.com/Osamu-GWAD/TorchFlower"
 homepage = "https://github.com/Osamu-GWAD/TorchFlower"
 readme = "README.md"
 keywords = ["minecraft", "bedrock", "raknet", "bot", "client"]
 categories = ["game-development", "network-programming"]
+publish = false
 
 [[bin]]
 name = "torchflower-lite-bot"
@@ -19,13 +20,13 @@ path = "src/main.rs"
 anyhow = "1.0"
 async-trait = "0.1"
 clap = { version = "4.5", features = ["derive"] }
+rand = "0.9"
 serde = { version = "1.0", features = ["derive"] }
-toml = "0.8"
 tokio = { version = "1.50", features = ["rt", "macros", "time", "net", "sync"] }
+toml = "0.8"
 torchflower-engine = { version = "0.1.0", path = "../torchflower-engine", default-features = false }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"], optional = true }
-rand = "0.9"
 
 [features]
 default = ["logging"]
