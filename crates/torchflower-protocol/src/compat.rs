@@ -299,6 +299,7 @@ pub use crate::AnimatePacket;
 pub use crate::ClientCacheStatusPacket;
 pub use crate::ClientToServerHandshakePacket;
 pub use crate::CommandOutputPacket;
+pub use crate::ContainerOpenPacket;
 pub use crate::CorrectPlayerMovePredictionPacket;
 pub use crate::DisconnectPacket;
 pub use crate::InventoryContentPacket;

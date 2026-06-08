@@ -87,6 +87,10 @@ pub enum ObservedPacket {
         flags: u32,
         layer: u32,
     },
+    ContainerOpen {
+        container_id: u8,
+        container_type: u8,
+    },
     UpdateSoftEnum,
     RegistryKnown(u32),
     Other(u32),
@@ -679,6 +683,8 @@ fn observe_packet_ids(packet_stream: &[u8]) -> EngineResult<Vec<ObservedPacket>>
                     }
                 },
             },
+            0x2e => read_container_open_observed(summary.packet, summary.payload_offset)
+                .unwrap_or(ObservedPacket::Other(packet_id)),
             0x64 => ObservedPacket::ModalFormRequest,
             0x72 => ObservedPacket::UpdateSoftEnum,
             0x73 => read_network_stack_latency(summary.packet, summary.payload_offset)
@@ -742,6 +748,7 @@ fn observed_packet_label(packet: &ObservedPacket) -> String {
             "network_chunk_publisher_update".to_string()
         }
         ObservedPacket::UpdateBlock { .. } => "update_block".to_string(),
+        ObservedPacket::ContainerOpen { .. } => "container_open".to_string(),
         ObservedPacket::UpdateSoftEnum => "update_soft_enum".to_string(),
         ObservedPacket::RegistryKnown(packet_id) => bedrock_packet_name(*packet_id).to_string(),
         ObservedPacket::Other(packet_id) => format!("other({packet_id})"),
@@ -3301,6 +3308,30 @@ fn override_connection_request() -> EngineResult<Option<Vec<u8>>> {
         bytes.len()
     );
     Ok(Some(bytes))
+}
+
+fn read_container_open_observed(packet: &[u8], payload_offset: usize) -> Option<ObservedPacket> {
+    let mut offset = payload_offset;
+    let container_id = *packet.get(offset)? as i8;
+    offset += 1;
+    let container_type = *packet.get(offset)? as i8;
+    offset += 1;
+    // block position: zigzag_i32, var_u32, zigzag_i32
+    let x = read_trace_zigzag_i32(packet, &mut offset)?;
+    let y = read_trace_var_u32(packet, &mut offset)?;
+    let z = read_trace_zigzag_i32(packet, &mut offset)?;
+    // entity_unique_id: zigzag_i64
+    let entity_unique_id = read_trace_zigzag_i64(packet, &mut offset)?;
+
+    eprintln!(
+        "[BEDROCK_RX] id=46 name=container_open container_id={} container_type={} pos={},{},{} entity_id={}",
+        container_id, container_type, x, y, z, entity_unique_id
+    );
+
+    Some(ObservedPacket::ContainerOpen {
+        container_id: container_id as u8,
+        container_type: container_type as u8,
+    })
 }
 
 #[cfg(test)]

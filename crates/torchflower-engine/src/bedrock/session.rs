@@ -237,21 +237,21 @@ struct HeldInventoryItem {
 }
 
 #[derive(Debug, Clone)]
-struct MenuClickTarget {
-    window_id: u32,
-    slot: u32,
-    item_id: i32,
-    stack_id: i32,
-    container_type: u8,
-    dynamic_container_id: Option<u32>,
-    priority: u8,
+pub struct MenuClickTarget {
+    pub window_id: u32,
+    pub slot: u32,
+    pub item_id: i32,
+    pub stack_id: i32,
+    pub container_type: u8,
+    pub dynamic_container_id: Option<u32>,
+    pub priority: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct BlockTarget {
-    x: i32,
-    y: i32,
-    z: i32,
+pub struct BlockTarget {
+    pub x: i32,
+    pub y: i32,
+    pub z: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -292,8 +292,8 @@ struct RawItemUseTransaction {
     client_prediction: u32,
 }
 
-#[derive(Debug, Clone, Copy)]
-enum MenuClickMethod {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuClickMethod {
     StandaloneObservedTake,
     PlayerAuthInputObservedTake,
     StandaloneObservedConsume,
@@ -2279,12 +2279,26 @@ pub struct ChestRoomBotReport {
 pub enum InstantScriptEvent {
     Spawn {
         runtime_id: u64,
+        entity_id: i64,
         position: (f32, f32, f32),
     },
     Death,
     Gui {
         form_id: u32,
         form_content: String,
+    },
+    InventoryGui {
+        window_id: u8,
+        window_type: u8,
+    },
+    InventoryContent {
+        container_id: u32,
+        items: Vec<ObservedInventoryItem>,
+    },
+    InventorySlot {
+        container_id: u32,
+        slot: u32,
+        item: Option<ObservedInventoryItem>,
     },
 }
 
@@ -2382,7 +2396,7 @@ impl BedrockBotSession {
                 continue;
             }
 
-            let (packets, _observed_packets) = if pending_packets.is_empty() {
+            let (packets, observed_packets) = if pending_packets.is_empty() {
                 let recv_timeout = if movement_validation.is_some() && movement_init_sent {
                     MOVEMENT_SEND_INTERVAL
                 } else if !resource_stack_done {
@@ -2412,12 +2426,48 @@ impl BedrockBotSession {
                             )
                             .await?;
                         }
-                        continue;
+                        (Vec::new(), Vec::new())
                     }
                 }
             } else {
                 (std::mem::take(&mut pending_packets), Vec::new())
             };
+
+            for observed in observed_packets {
+                match observed {
+                    ObservedPacket::InventoryContent { items } => {
+                        if !items.is_empty() {
+                            let container_id = items[0].container_id;
+                            script
+                                .handle_event(
+                                    &mut conn,
+                                    session,
+                                    InstantScriptEvent::InventoryContent {
+                                        container_id,
+                                        items,
+                                    },
+                                )
+                                .await?;
+                        }
+                    }
+                    ObservedPacket::InventorySlot { item } => {
+                        if let Some(ref it) = item {
+                            script
+                                .handle_event(
+                                    &mut conn,
+                                    session,
+                                    InstantScriptEvent::InventorySlot {
+                                        container_id: it.container_id,
+                                        slot: it.slot,
+                                        item: Some(it.clone()),
+                                    },
+                                )
+                                .await?;
+                        }
+                    }
+                    _ => {}
+                }
+            }
 
             for packet in packets {
                 match packet {
@@ -2430,6 +2480,7 @@ impl BedrockBotSession {
                                         session,
                                         InstantScriptEvent::Spawn {
                                             runtime_id: mv.runtime_id.0,
+                                            entity_id: mv.entity_id,
                                             position: mv.last_sent_position,
                                         },
                                     )
@@ -2494,6 +2545,7 @@ impl BedrockBotSession {
                                 session,
                                 InstantScriptEvent::Spawn {
                                     runtime_id: current_runtime_id,
+                                    entity_id: start.target_actor_id,
                                     position: (
                                         start.position.x,
                                         start.position.y,
@@ -2568,6 +2620,18 @@ impl BedrockBotSession {
                             )
                             .await?;
                     }
+                    BedrockProto::ContainerOpen(open) => {
+                        script
+                            .handle_event(
+                                &mut conn,
+                                session,
+                                InstantScriptEvent::InventoryGui {
+                                    window_id: open.container_id,
+                                    window_type: open.container_type,
+                                },
+                            )
+                            .await?;
+                    }
                     BedrockProto::Disconnect(disconnect) => {
                         eprintln!("[INSTANT_SCRIPT] server disconnected: {disconnect:?}");
                         conn.close().await;
@@ -2595,7 +2659,187 @@ impl BedrockBotSession {
 
         Ok(())
     }
+}
 
+impl BedrockProtocolAdapter {
+    pub async fn send_command(
+        &mut self,
+        command: &str,
+        player_entity_id: i64,
+    ) -> EngineResult<()> {
+        let clean_command = command_request_wire_command(command);
+        let request_id = Uuid::new_v4().to_string();
+        eprintln!(
+            "[COMMAND_TX] packet=CommandRequest command={} request_id={}",
+            clean_command, request_id
+        );
+        self.send_preencoded_packet_stream(
+            "command_request",
+            encode_command_request_packet_stream(&clean_command, &request_id, player_entity_id),
+        )
+        .await
+    }
+
+    pub async fn click_slot(
+        &mut self,
+        target: &MenuClickTarget,
+        method: MenuClickMethod,
+    ) -> EngineResult<()> {
+        let request_id = rand::random::<i32>().abs();
+        eprintln!(
+            "[GAMEPLAY_MENU_TX] click_slot target={:?} method={:?} request_id={}",
+            target, method, request_id
+        );
+        self.send_preencoded_packet_stream(
+            method.label(),
+            encode_item_stack_request_packet_stream(request_id, target, method),
+        )
+        .await
+    }
+
+    pub async fn respawn(&mut self, runtime_id: u64) -> EngineResult<()> {
+        eprintln!("[RESPAWN_TX] sending PlayerAction respawn for runtime_id={}", runtime_id);
+        self.send_preencoded_packet_stream(
+            "player_action_respawn",
+            encode_player_action_respawn(runtime_id),
+        )
+        .await
+    }
+
+    pub async fn use_block_in_front(
+        &mut self,
+        position: (f32, f32, f32),
+        yaw: f32,
+        pitch: f32,
+        tick: u64,
+    ) -> EngineResult<()> {
+        let yaw_rad = yaw.to_radians();
+        let pitch_rad = pitch.to_radians();
+        let dx = -yaw_rad.sin() * pitch_rad.cos();
+        let dy = -pitch_rad.sin();
+        let dz = yaw_rad.cos() * pitch_rad.cos();
+
+        let target_x = (position.0 + dx * 1.5).floor() as i32;
+        let target_y = (position.1 + dy * 1.5).floor() as i32;
+        let target_z = (position.2 + dz * 1.5).floor() as i32;
+
+        let block_pos = BlockTarget {
+            x: target_x,
+            y: target_y,
+            z: target_z,
+        };
+
+        eprintln!(
+            "[GAMEPLAY_TX] use_block_in_front player_pos={:?} dir={:?} block_pos={:?} tick={}",
+            position, (dx, dy, dz), block_pos, tick
+        );
+
+        let transaction = RawItemUseTransaction {
+            action_type: 0,
+            trigger_type: 1,
+            block_position: block_pos,
+            face: 1,
+            hotbar_slot: 0,
+            held_item_bytes: vec![0],
+            player_pos: position,
+            click_pos: (0.5, 0.5, 0.5),
+            block_runtime_id: 0,
+            client_prediction: 1,
+        };
+
+        let input = RawPlayerAuthInput {
+            position,
+            velocity: (0.0, 0.0, 0.0),
+            yaw,
+            pitch,
+            input_data: received_server_data_input_flag()
+                | PlayerAuthInputFlags::PerformItemInteraction,
+            tick,
+            move_vector: (0.0, 0.0, 0.0),
+            analog_move_vector: (0.0, 0.0),
+            raw_move_vector: (0.0, 0.0),
+            block_actions: &[],
+            item_use_transaction_id: Some(&transaction),
+            item_stack_request: None,
+        };
+
+        self.send_preencoded_packet_stream(
+            "player_auth_input_use_block",
+            encode_player_auth_input_packet_stream(&input)?,
+        )
+        .await
+    }
+}
+
+fn encode_player_action_respawn(runtime_id: u64) -> Vec<u8> {
+    let mut packet = Vec::new();
+    write_unsigned_varint_u32_local(0x24, &mut packet);
+    write_unsigned_varint_u64(runtime_id, &mut packet);
+    write_zigzag_i32(7, &mut packet);
+    write_zigzag_i32(0, &mut packet);
+    write_unsigned_varint_u32_local(0, &mut packet);
+    write_zigzag_i32(0, &mut packet);
+    write_zigzag_i32(0, &mut packet);
+    write_unsigned_varint_u32_local(0, &mut packet);
+    write_zigzag_i32(0, &mut packet);
+    write_zigzag_i32(0, &mut packet);
+
+    let mut stream = Vec::new();
+    write_unsigned_varint_u32_local(packet.len() as u32, &mut stream);
+    stream.extend_from_slice(&packet);
+    stream
+}
+
+pub fn create_offline_session(username: &str) -> EngineResult<ProvisionedBedrockSession> {
+    use crate::auth::minecraft::MinecraftAuth;
+    use jsonwebtoken::{encode, Algorithm, Header, EncodingKey};
+
+    let (_signing_key, private_key_pem, public_key) = MinecraftAuth::generate_device_keypair()?;
+
+    let encoding_key = EncodingKey::from_ec_pem(private_key_pem.as_bytes())
+        .map_err(|e| EngineError::Crypto(e.to_string()))?;
+    let now = Utc::now().timestamp();
+
+    let mut extra_data = serde_json::Map::new();
+    extra_data.insert("displayName".to_string(), json!(username));
+    extra_data.insert("XUID".to_string(), json!("0"));
+    extra_data.insert("titleId".to_string(), json!("1"));
+
+    let mut claims = serde_json::Map::new();
+    claims.insert("extraData".to_string(), serde_json::Value::Object(extra_data));
+    claims.insert("identityPublicKey".to_string(), json!(public_key));
+    claims.insert("iat".to_string(), json!(now));
+    claims.insert("exp".to_string(), json!(now + 86400));
+
+    let mut header = Header::new(Algorithm::ES384);
+    header.typ = None;
+    header.x5u = Some(public_key.clone());
+
+    let identity_jwt = encode(&header, &claims, &encoding_key)
+        .map_err(|e| EngineError::Crypto(e.to_string()))?;
+
+    let chain = crate::auth::minecraft::BedrockJwtChain {
+        chain: vec![identity_jwt],
+        skin: "mock_skin".to_string(),
+        public_key_der_base64: public_key,
+        private_key_pem,
+        display_name: username.to_string(),
+        xuid: "0".to_string(),
+        title_id: Some("1".to_string()),
+    };
+
+    Ok(ProvisionedBedrockSession {
+        account_id: username.to_string(),
+        playfab_id: "mock_playfab_id".to_string(),
+        playfab_session_ticket: "mock_ticket".to_string(),
+        minecraft_access_token: "mock_token".to_string(),
+        bedrock_login_token: "mock_login_token".to_string(),
+        legacy_bedrock_token: "mock_legacy_token".to_string(),
+        chain,
+    })
+}
+
+impl BedrockBotSession {
     pub async fn run_chest_room_bot_for(
         &self,
         account_id: &str,
@@ -3824,6 +4068,7 @@ impl BedrockBotSession {
                             );
                         }
                     }
+                    ObservedPacket::ContainerOpen { .. } => {}
                     ObservedPacket::UpdateSoftEnum => {}
                     ObservedPacket::RegistryKnown(_) => {}
                     ObservedPacket::Other(id) => {

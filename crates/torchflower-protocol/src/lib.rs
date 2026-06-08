@@ -59,6 +59,7 @@ impl PacketRegistry {
             0x1f => Some("mob_equipment"),
             0x2c => Some("animate"),
             0x2d => Some("respawn"),
+            0x2e => Some("container_open"),
             0x31 => Some("inventory_content"),
             0x32 => Some("inventory_slot"),
             0x45 => Some("request_chunk_radius"),
@@ -96,6 +97,7 @@ impl PacketRegistry {
             "mob_equipment" => Some(0x1f),
             "animate" => Some(0x2c),
             "respawn" => Some(0x2d),
+            "container_open" => Some(0x2e),
             "inventory_content" => Some(0x31),
             "inventory_slot" => Some(0x32),
             "request_chunk_radius" => Some(0x45),
@@ -139,6 +141,7 @@ pub enum Packet {
     InventorySlot(InventorySlotPacket),
     Animate(AnimatePacket),
     Respawn(RespawnPacket),
+    ContainerOpen(ContainerOpenPacket),
     CommandOutput(CommandOutputPacket),
     ModalFormRequest(ModalFormRequestPacket),
     ModalFormResponse(ModalFormResponsePacket),
@@ -175,6 +178,7 @@ impl Packet {
             Self::InventorySlot(_) => 0x32,
             Self::Animate(_) => 0x2c,
             Self::Respawn(_) => 0x2d,
+            Self::ContainerOpen(_) => 0x2e,
             Self::CommandOutput(_) => 0x4f,
             Self::ModalFormRequest(_) => 0x64,
             Self::ModalFormResponse(_) => 0x65,
@@ -408,6 +412,14 @@ impl Packet {
                         put_string(&mut buf, param);
                     }
                 }
+            }
+            Self::ContainerOpen(p) => {
+                buf.put_u8(p.container_id);
+                buf.put_u8(p.container_type);
+                put_zigzag_i32(&mut buf, p.position.x);
+                put_var_u32(&mut buf, p.position.y as u32);
+                put_zigzag_i32(&mut buf, p.position.z);
+                put_zigzag_i64(&mut buf, p.entity_unique_id);
             }
             Self::ModalFormRequest(p) => {
                 put_var_u32(&mut buf, p.form_id);
@@ -980,6 +992,23 @@ impl Packet {
                 }
                 Ok(Self::CommandOutput(CommandOutputPacket { output_messages }))
             }
+            0x2e => {
+                if buf.remaining() < 2 {
+                    return Err(CoreError::UnexpectedEof("ContainerOpen header"));
+                }
+                let container_id = buf.get_u8();
+                let container_type = buf.get_u8();
+                let x = get_zigzag_i32(buf)?;
+                let y = get_var_u32(buf)? as i32;
+                let z = get_zigzag_i32(buf)?;
+                let entity_unique_id = get_zigzag_i64(buf)?;
+                Ok(Self::ContainerOpen(ContainerOpenPacket {
+                    container_id,
+                    container_type,
+                    position: BlockPosition { x, y, z },
+                    entity_unique_id,
+                }))
+            }
             0x64 => {
                 let form_id = get_var_u32(buf)?;
                 let form_content = get_string(buf)?;
@@ -1346,6 +1375,14 @@ pub struct CommandOutputMessage {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CommandOutputPacket {
     pub output_messages: Vec<CommandOutputMessage>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ContainerOpenPacket {
+    pub container_id: u8,
+    pub container_type: u8,
+    pub position: BlockPosition,
+    pub entity_unique_id: i64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
