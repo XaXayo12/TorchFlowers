@@ -189,7 +189,7 @@ impl Packet {
         }
     }
 
-    pub fn encode(&self, version: ProtocolVersion) -> Result<Bytes, CoreError> {
+    pub fn encode(&self, _version: ProtocolVersion) -> Result<Bytes, CoreError> {
         let mut buf = BytesMut::new();
         match self {
             Self::RequestNetworkSettings(p) => {
@@ -288,7 +288,7 @@ impl Packet {
                         put_string(&mut buf, &p.source_name);
                         put_string(&mut buf, &p.message);
                     }
-                    2 | 3 | 4 => {
+                    2..=4 => {
                         put_string(&mut buf, &p.message);
                         put_var_u32(&mut buf, p.parameters.len() as u32);
                         for param in &p.parameters {
@@ -467,7 +467,7 @@ impl Packet {
         Ok(buf.freeze())
     }
 
-    pub fn decode(id: u32, buf: &mut Bytes, version: ProtocolVersion) -> Result<Self, CoreError> {
+    pub fn decode(id: u32, buf: &mut Bytes, _version: ProtocolVersion) -> Result<Self, CoreError> {
         match id {
             0xc1 => {
                 if buf.remaining() < 4 {
@@ -703,14 +703,14 @@ impl Packet {
                 let packet_type = buf.get_u8();
                 let needs_translation = buf.get_u8() != 0;
                 let mut source_name = String::new();
-                let mut message = String::new();
+                let message;
                 let mut parameters = Vec::new();
                 match packet_type {
                     0 | 1 | 7 | 8 => {
                         source_name = get_string(buf)?;
                         message = get_string(buf)?;
                     }
-                    2 | 3 | 4 => {
+                    2..=4 => {
                         message = get_string(buf)?;
                         let len = get_var_u32(buf)? as usize;
                         for _ in 0..len {
@@ -1087,10 +1087,10 @@ impl Packet {
             0x1e => {
                 let transaction_type = get_var_u32(buf)?;
                 let actions_len = get_var_u32(buf)? as usize;
-                let mut actions = Vec::new();
+                let actions = Vec::new();
                 for _ in 0..actions_len {
                     // simple skip of actions bytes/data
-                    let act_type = get_var_u32(buf)?;
+                    let _act_type = get_var_u32(buf)?;
                     get_var_u32(buf)?; // slot
                 }
                 let transaction_data = buf.copy_to_bytes(buf.remaining()).to_vec();

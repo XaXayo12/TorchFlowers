@@ -91,7 +91,7 @@ impl Server {
         // Spawn background task for offline ping requests
         tokio::spawn(async move {
             loop {
-                if let Err(_) = ping_server.serve_once().await {
+                if ping_server.serve_once().await.is_err() {
                     // Ignore errors, continue serving
                 }
             }

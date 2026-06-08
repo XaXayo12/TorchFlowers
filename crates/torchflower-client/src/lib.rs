@@ -77,7 +77,7 @@ impl Client {
             guard.recv().await?
         };
         let mut settings_buf = settings_bytes.clone();
-        if settings_buf.get(0) == Some(&0xfe) {
+        if settings_buf.first() == Some(&0xfe) {
             settings_buf.advance(1); // skip RakNet game packet wrapper if present
         }
         // read packet payload length (varint)
@@ -89,7 +89,7 @@ impl Client {
                 packet_id
             ));
         }
-        let settings = Packet::decode(0xc2, &mut settings_buf, options.protocol_version)?;
+        let _settings = Packet::decode(0xc2, &mut settings_buf, options.protocol_version)?;
 
         // 3. Send Login
         // In native mode, if AuthConfig is present, we could generate Xbox live token.
@@ -105,9 +105,9 @@ impl Client {
         Self::send_raw_packet(&rak_conn, &login_packet, options.protocol_version).await?;
 
         // 4. Perform Handshake & Resource Pack Flow
-        let mut play_status_received = false;
-        let mut resource_packs_received = false;
-        let mut resource_stack_received = false;
+        let mut _play_status_received = false;
+        let mut _resource_packs_received = false;
+        let mut _resource_stack_received = false;
 
         loop {
             let payload = {
@@ -115,7 +115,7 @@ impl Client {
                 guard.recv().await?
             };
             let mut buf = payload.clone();
-            if buf.get(0) == Some(&0xfe) {
+            if buf.first() == Some(&0xfe) {
                 buf.advance(1);
             }
             // read length
@@ -127,11 +127,11 @@ impl Client {
                 Packet::PlayStatus(p) => {
                     if p.status == 0 {
                         // Login success
-                        play_status_received = true;
+                        _play_status_received = true;
                     }
                 }
-                Packet::ResourcePacksInfo(p) => {
-                    resource_packs_received = true;
+                Packet::ResourcePacksInfo(_p) => {
+                    _resource_packs_received = true;
                     // Respond completed
                     let resp =
                         Packet::ResourcePackClientResponse(ResourcePackClientResponsePacket {
@@ -141,7 +141,7 @@ impl Client {
                     Self::send_raw_packet(&rak_conn, &resp, options.protocol_version).await?;
                 }
                 Packet::ResourcePackStack(_) => {
-                    resource_stack_received = true;
+                    _resource_stack_received = true;
                     let resp =
                         Packet::ResourcePackClientResponse(ResourcePackClientResponsePacket {
                             response_status: 4, // completed
@@ -174,7 +174,7 @@ impl Client {
                 guard.recv().await?
             };
             let mut buf = payload.clone();
-            if buf.get(0) == Some(&0xfe) {
+            if buf.first() == Some(&0xfe) {
                 buf.advance(1);
             }
             let _len = get_var_u32(&mut buf)?;

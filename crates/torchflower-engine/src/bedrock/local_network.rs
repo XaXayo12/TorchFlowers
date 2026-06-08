@@ -243,9 +243,7 @@ pub mod codec {
     ) -> Result<Vec<u8>, NetworkCodecError> {
         let mut packet_stream = Vec::new();
         for packet in packets {
-            let payload = packet
-                .encode(version)
-                .map_err(|e| NetworkCodecError::Proto(e))?;
+            let payload = packet.encode(version).map_err(NetworkCodecError::Proto)?;
 
             let mut packet_buf = BytesMut::new();
             put_var_u32(&mut packet_buf, packet.id());
@@ -278,8 +276,7 @@ pub mod codec {
         let mut packets = Vec::new();
 
         while cursor.position() < cursor.get_ref().len() as u64 {
-            let buf_len =
-                get_var_u32(&mut cursor).map_err(|e| NetworkCodecError::Proto(e))? as usize;
+            let buf_len = get_var_u32(&mut cursor).map_err(NetworkCodecError::Proto)? as usize;
             let start = cursor.position() as usize;
             let end = start.saturating_add(buf_len);
             if end > cursor.get_ref().len() {
@@ -295,11 +292,11 @@ pub mod codec {
             }
 
             let mut packet_data = &cursor.get_ref()[start..end];
-            let id = get_var_u32(&mut packet_data).map_err(|e| NetworkCodecError::Proto(e))?;
+            let id = get_var_u32(&mut packet_data).map_err(NetworkCodecError::Proto)?;
             let mut payload = Bytes::copy_from_slice(packet_data);
 
-            let decoded = Packet::decode(id, &mut payload, version)
-                .map_err(|e| NetworkCodecError::Proto(e))?;
+            let decoded =
+                Packet::decode(id, &mut payload, version).map_err(NetworkCodecError::Proto)?;
             packets.push(decoded);
             cursor.set_position(end as u64);
         }

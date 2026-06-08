@@ -568,7 +568,7 @@ impl MovementValidation {
         let tick = self.next_client_tick();
         MovementFrame {
             frame_index: self.sent_frames,
-            runtime_id: self.runtime_id.clone(),
+            runtime_id: self.runtime_id,
             tick,
             position,
             velocity,
@@ -585,7 +585,7 @@ impl MovementValidation {
         let tick = self.next_client_tick();
         MovementFrame {
             frame_index: self.idle_frames_sent,
-            runtime_id: self.runtime_id.clone(),
+            runtime_id: self.runtime_id,
             tick,
             position: self.last_sent_position,
             velocity: (0.0, 0.0, 0.0),
@@ -2184,7 +2184,7 @@ impl MovementValidation {
         self.last_sent_position = position;
         Some(MovementFrame {
             frame_index: self.sent_frames + self.approach_frames_sent,
-            runtime_id: self.runtime_id.clone(),
+            runtime_id: self.runtime_id,
             tick: self.next_client_tick(),
             position,
             velocity,
@@ -2230,7 +2230,7 @@ impl MovementValidation {
         let tick = self.next_client_tick();
         Some(MovementFrame {
             frame_index: self.pickup_frames_sent,
-            runtime_id: self.runtime_id.clone(),
+            runtime_id: self.runtime_id,
             tick,
             position,
             velocity: if distance > 0.01 {
@@ -2674,7 +2674,7 @@ impl BedrockBotSession {
                         }
                         if status.player_spawn && !movement_init_sent {
                             if let Some(runtime_id) =
-                                movement_validation.as_ref().map(|m| m.runtime_id.clone())
+                                movement_validation.as_ref().map(|m| m.runtime_id)
                             {
                                 self.send_movement_initialization(
                                     account_id,
@@ -3049,7 +3049,7 @@ impl BedrockBotSession {
                     BedrockProto::UpdateBlock(packet) => {
                         let target = BlockTarget {
                             x: packet.position.x,
-                            y: packet.position.y as i32,
+                            y: packet.position.y,
                             z: packet.position.z,
                         };
                         eprintln!(
@@ -3162,7 +3162,7 @@ impl BedrockBotSession {
                                 .await?;
                             if !movement_init_sent {
                                 if let Some(runtime_id) =
-                                    movement_validation.as_ref().map(|m| m.runtime_id.clone())
+                                    movement_validation.as_ref().map(|m| m.runtime_id)
                                 {
                                     self.send_movement_initialization(
                                         account_id,
@@ -3248,7 +3248,7 @@ impl BedrockBotSession {
                             if let Some(start_game) = start_game {
                                 let runtime_id = ActorRuntimeID(start_game.runtime_id);
                                 let mut movement = MovementValidation::new(
-                                    runtime_id.clone(),
+                                    runtime_id,
                                     started.elapsed().as_secs().max(1),
                                     start_game.position,
                                     start_game.rotation,
@@ -4431,9 +4431,9 @@ impl BedrockBotSession {
         frame: &MovementFrame,
     ) -> EngineResult<()> {
         let input_data = received_server_data_input_flag()
-            | PlayerAuthInputFlags::Up as u128
-            | PlayerAuthInputFlags::SprintDown as u128
-            | PlayerAuthInputFlags::Sprinting as u128;
+            | PlayerAuthInputFlags::Up
+            | PlayerAuthInputFlags::SprintDown
+            | PlayerAuthInputFlags::Sprinting;
         let send_move_player = env_bool("BEDROCK_SEND_CLIENT_MOVE_PLAYER", false)
             && (frame.frame_index == 1 || frame.frame_index % 20 == 0);
         let mut packets = Vec::with_capacity(if send_move_player { 1 } else { 0 });
@@ -4575,9 +4575,9 @@ impl BedrockBotSession {
         frame: &MovementFrame,
     ) -> EngineResult<()> {
         let input_data = received_server_data_input_flag()
-            | PlayerAuthInputFlags::Up as u128
-            | PlayerAuthInputFlags::SprintDown as u128
-            | PlayerAuthInputFlags::Sprinting as u128;
+            | PlayerAuthInputFlags::Up
+            | PlayerAuthInputFlags::SprintDown
+            | PlayerAuthInputFlags::Sprinting;
         let send_move_player = env_bool("BEDROCK_SEND_PICKUP_MOVE_PLAYER", true);
         if send_move_player {
             eprintln!(
@@ -6147,7 +6147,7 @@ mod tests {
             "block-action input must carry block actions"
         );
         assert_eq!(
-            flags & PlayerAuthInputFlags::MissedSwing as u128,
+            flags & PlayerAuthInputFlags::MissedSwing,
             0,
             "block breaking should not be encoded as an air swing"
         );
@@ -6968,7 +6968,7 @@ mod tests {
 
         movement.last_sent_at = Some(Instant::now() - Duration::from_secs(2));
         let second = movement.next_frame();
-        let moved_z = second.position.z - first.position.z;
+        let moved_z = second.position.2 - first.position.2;
         let max_step = MOVEMENT_FORWARD_SPEED_BLOCKS_PER_SECOND * MOVEMENT_MAX_STEP_SECONDS;
 
         assert!(moved_z > 0.0);
@@ -6976,8 +6976,8 @@ mod tests {
             moved_z <= max_step + 0.002,
             "movement step must be capped after delayed drive: moved_z={moved_z} max_step={max_step}"
         );
-        assert_eq!(second.position.x, first.position.x);
-        assert_eq!(second.position.y, first.position.y);
+        assert_eq!(second.position.0, first.position.0);
+        assert_eq!(second.position.1, first.position.1);
     }
 
     #[test]
@@ -7003,9 +7003,9 @@ mod tests {
             .next_gameplay_approach_frame()
             .expect("approach frame");
 
-        assert!(frame.position.x > -16_259.5);
-        assert_eq!(frame.position.y, 43.0);
-        assert!(frame.position.z < 27_470.5);
+        assert!(frame.position.0 > -16_259.5);
+        assert_eq!(frame.position.1, 43.0);
+        assert!(frame.position.2 < 27_470.5);
     }
 
     #[test]
@@ -7022,10 +7022,10 @@ mod tests {
         let frame = movement
             .next_gameplay_approach_frame_with_limits(128.0, 16.0)
             .expect("extended approach frame");
-        assert!(frame.position.x > 0.0);
-        assert_eq!(frame.position.y, 64.0);
-        assert!(frame.position.z > 0.0);
-        assert!(frame.position.z < 0.02);
+        assert!(frame.position.0 > 0.0);
+        assert_eq!(frame.position.1, 64.0);
+        assert!(frame.position.2 > 0.0);
+        assert!(frame.position.2 < 0.02);
     }
 
     #[test]
@@ -7633,7 +7633,7 @@ mod tests {
         assert!(movement.ready_for_prebreak_pickup());
         assert_eq!(
             movement.pickup_target_position(),
-            Some((entity.position.x, entity.position.y, entity.position.z))
+            Some((entity.position.0, entity.position.1, entity.position.2))
         );
     }
 

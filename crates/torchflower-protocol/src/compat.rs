@@ -6,8 +6,6 @@
 //! Every item here is either a type alias, a newtype wrapper, or a constant
 //! that maps the old API to the new one.
 
-use crate::*;
-
 // ---------------------------------------------------------------------------
 // Actor ID
 // ---------------------------------------------------------------------------
@@ -128,9 +126,9 @@ pub enum ComplexInventoryTransactionType {
 
 /// Bit-field constants for PlayerAuthInput's `input_data` field.
 /// These are the raw u128 bit-mask values used throughout session.rs.
-#[allow(non_upper_case_globals)]
 pub struct PlayerAuthInputFlags;
 
+#[allow(non_upper_case_globals)]
 impl PlayerAuthInputFlags {
     pub const Ascend: u128 = 1 << 0;
     pub const Descend: u128 = 1 << 1;
