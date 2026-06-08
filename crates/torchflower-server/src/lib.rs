@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 use torchflower_network::native::NativePingServer;
-use torchflower_network::protocol::mcpe::motd::{Motd, Gamemode};
+use torchflower_network::protocol::mcpe::motd::{Gamemode, Motd};
 use torchflower_protocol::{Packet, ProtocolVersion};
 
 #[derive(Debug, Clone)]
@@ -28,11 +28,13 @@ impl ServerPlayer {
     }
 
     pub async fn disconnect(&self, reason: &str) -> Result<(), anyhow::Error> {
-        let _ = self.send_packet(Packet::Disconnect(torchflower_protocol::DisconnectPacket {
-            reason: 0,
-            hide_reason: false,
-            message: Some(reason.to_string()),
-        })).await;
+        let _ = self
+            .send_packet(Packet::Disconnect(torchflower_protocol::DisconnectPacket {
+                reason: 0,
+                hide_reason: false,
+                message: Some(reason.to_string()),
+            }))
+            .await;
         Ok(())
     }
 }
@@ -41,7 +43,10 @@ impl ServerPlayer {
 pub enum ServerEvent {
     PlayerJoined(ServerPlayer),
     PlayerLeft(ServerPlayer),
-    Packet { player: ServerPlayer, packet: Packet },
+    Packet {
+        player: ServerPlayer,
+        packet: Packet,
+    },
 }
 
 pub struct Server {
@@ -82,7 +87,7 @@ impl Server {
         };
 
         let ping_server = NativePingServer::bind(self.addr, motd).await?;
-        
+
         // Spawn background task for offline ping requests
         tokio::spawn(async move {
             loop {

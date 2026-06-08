@@ -230,10 +230,10 @@ pub mod encryption {
 
 pub mod codec {
     use super::{compression::Compression, encryption::Encryption, error::NetworkCodecError};
+    use bytes::{BufMut, Bytes, BytesMut};
+    use std::io::Cursor;
     use torchflower_protocol::{Packet, ProtocolVersion};
     use torchflower_protocol_core::{get_var_u32, put_var_u32};
-    use bytes::{Bytes, BytesMut, BufMut};
-    use std::io::Cursor;
 
     pub fn encode_packets(
         packets: &[Packet],
@@ -243,13 +243,14 @@ pub mod codec {
     ) -> Result<Vec<u8>, NetworkCodecError> {
         let mut packet_stream = Vec::new();
         for packet in packets {
-            let payload = packet.encode(version)
+            let payload = packet
+                .encode(version)
                 .map_err(|e| NetworkCodecError::Proto(e))?;
-            
+
             let mut packet_buf = BytesMut::new();
             put_var_u32(&mut packet_buf, packet.id());
             packet_buf.put_slice(&payload);
-            
+
             put_var_u32(&mut packet_stream, packet_buf.len() as u32);
             packet_stream.extend_from_slice(&packet_buf);
         }
@@ -277,7 +278,8 @@ pub mod codec {
         let mut packets = Vec::new();
 
         while cursor.position() < cursor.get_ref().len() as u64 {
-            let buf_len = get_var_u32(&mut cursor).map_err(|e| NetworkCodecError::Proto(e))? as usize;
+            let buf_len =
+                get_var_u32(&mut cursor).map_err(|e| NetworkCodecError::Proto(e))? as usize;
             let start = cursor.position() as usize;
             let end = start.saturating_add(buf_len);
             if end > cursor.get_ref().len() {
@@ -295,7 +297,7 @@ pub mod codec {
             let mut packet_data = &cursor.get_ref()[start..end];
             let id = get_var_u32(&mut packet_data).map_err(|e| NetworkCodecError::Proto(e))?;
             let mut payload = Bytes::copy_from_slice(packet_data);
-            
+
             let decoded = Packet::decode(id, &mut payload, version)
                 .map_err(|e| NetworkCodecError::Proto(e))?;
             packets.push(decoded);

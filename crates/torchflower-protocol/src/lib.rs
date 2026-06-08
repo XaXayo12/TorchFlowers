@@ -326,7 +326,8 @@ impl Packet {
                 buf.put_u8(p.mode);
                 buf.put_u8(if p.on_ground { 1 } else { 0 });
                 put_var_u64(&mut buf, p.riding_runtime_id);
-                if p.mode == 2 { // Teleport
+                if p.mode == 2 {
+                    // Teleport
                     buf.put_i32_le(p.teleport_cause);
                     buf.put_i32_le(p.teleport_item_id);
                 }
@@ -384,7 +385,8 @@ impl Packet {
             Self::Animate(p) => {
                 put_var_i32(&mut buf, p.action_id);
                 put_var_u64(&mut buf, p.runtime_entity_id);
-                if p.action_id == 1 { // swing arm
+                if p.action_id == 1 {
+                    // swing arm
                     buf.put_f32_le(p.rowing_time);
                 }
             }
@@ -468,12 +470,18 @@ impl Packet {
     pub fn decode(id: u32, buf: &mut Bytes, version: ProtocolVersion) -> Result<Self, CoreError> {
         match id {
             0xc1 => {
-                if buf.remaining() < 4 { return Err(CoreError::UnexpectedEof("RequestNetworkSettings")); }
+                if buf.remaining() < 4 {
+                    return Err(CoreError::UnexpectedEof("RequestNetworkSettings"));
+                }
                 let protocol_version = buf.get_i32_le();
-                Ok(Self::RequestNetworkSettings(RequestNetworkSettingsPacket { protocol_version }))
+                Ok(Self::RequestNetworkSettings(RequestNetworkSettingsPacket {
+                    protocol_version,
+                }))
             }
             0xc2 => {
-                if buf.remaining() < 5 { return Err(CoreError::UnexpectedEof("NetworkSettings")); }
+                if buf.remaining() < 5 {
+                    return Err(CoreError::UnexpectedEof("NetworkSettings"));
+                }
                 let compression_threshold = buf.get_u16_le();
                 let compression_algorithm = buf.get_u16_le();
                 let client_cache_enabled = buf.get_u8() != 0;
@@ -484,10 +492,14 @@ impl Packet {
                 }))
             }
             0x01 => {
-                if buf.remaining() < 4 { return Err(CoreError::UnexpectedEof("Login protocol version")); }
+                if buf.remaining() < 4 {
+                    return Err(CoreError::UnexpectedEof("Login protocol version"));
+                }
                 let protocol_version = buf.get_i32_le();
                 let payload_len = get_var_u32(buf)? as usize;
-                if buf.remaining() < payload_len { return Err(CoreError::UnexpectedEof("Login body")); }
+                if buf.remaining() < payload_len {
+                    return Err(CoreError::UnexpectedEof("Login body"));
+                }
                 let mut body = buf.copy_to_bytes(payload_len);
                 let chain_json = get_le_string(&mut body)?;
                 let client_data_jwt = get_le_string(&mut body)?;
@@ -498,20 +510,28 @@ impl Packet {
                 }))
             }
             0x02 => {
-                if buf.remaining() < 4 { return Err(CoreError::UnexpectedEof("PlayStatus")); }
+                if buf.remaining() < 4 {
+                    return Err(CoreError::UnexpectedEof("PlayStatus"));
+                }
                 let status = buf.get_i32();
                 Ok(Self::PlayStatus(PlayStatusPacket { status }))
             }
             0x03 => {
                 let handshake_web_token = get_string(buf)?;
-                Ok(Self::ServerToClientHandshake(ServerToClientHandshakePacket { handshake_web_token }))
+                Ok(Self::ServerToClientHandshake(
+                    ServerToClientHandshakePacket {
+                        handshake_web_token,
+                    },
+                ))
             }
-            0x04 => {
-                Ok(Self::ClientToServerHandshake(ClientToServerHandshakePacket {}))
-            }
+            0x04 => Ok(Self::ClientToServerHandshake(
+                ClientToServerHandshakePacket {},
+            )),
             0x05 => {
                 let reason = get_var_i32(buf)?;
-                if buf.remaining() < 1 { return Err(CoreError::UnexpectedEof("Disconnect hide_reason")); }
+                if buf.remaining() < 1 {
+                    return Err(CoreError::UnexpectedEof("Disconnect hide_reason"));
+                }
                 let hide_reason = buf.get_u8() != 0;
                 let message = if !hide_reason {
                     Some(get_string(buf)?)
@@ -525,7 +545,9 @@ impl Packet {
                 }))
             }
             0x06 => {
-                if buf.remaining() < 2 { return Err(CoreError::UnexpectedEof("ResourcePacksInfo")); }
+                if buf.remaining() < 2 {
+                    return Err(CoreError::UnexpectedEof("ResourcePacksInfo"));
+                }
                 let must_accept = buf.get_u8() != 0;
                 let has_addons = buf.get_u8() != 0;
                 let behavior_packs_len = buf.get_u16_le() as usize;
@@ -533,12 +555,16 @@ impl Packet {
                 for _ in 0..behavior_packs_len {
                     let id = get_string(buf)?;
                     let version = get_string(buf)?;
-                    if buf.remaining() < 8 { return Err(CoreError::UnexpectedEof("BehaviorPack size")); }
+                    if buf.remaining() < 8 {
+                        return Err(CoreError::UnexpectedEof("BehaviorPack size"));
+                    }
                     let size = buf.get_u64_le();
                     let content_key = get_string(buf)?;
                     let sub_pack_name = get_string(buf)?;
                     let content_identity = get_string(buf)?;
-                    if buf.remaining() < 1 { return Err(CoreError::UnexpectedEof("BehaviorPack scripts")); }
+                    if buf.remaining() < 1 {
+                        return Err(CoreError::UnexpectedEof("BehaviorPack scripts"));
+                    }
                     let has_scripts = buf.get_u8() != 0;
                     behavior_packs.push(ResourcePackInfoEntry {
                         id,
@@ -556,12 +582,16 @@ impl Packet {
                 for _ in 0..resource_packs_len {
                     let id = get_string(buf)?;
                     let version = get_string(buf)?;
-                    if buf.remaining() < 8 { return Err(CoreError::UnexpectedEof("ResourcePack size")); }
+                    if buf.remaining() < 8 {
+                        return Err(CoreError::UnexpectedEof("ResourcePack size"));
+                    }
                     let size = buf.get_u64_le();
                     let content_key = get_string(buf)?;
                     let sub_pack_name = get_string(buf)?;
                     let content_identity = get_string(buf)?;
-                    if buf.remaining() < 2 { return Err(CoreError::UnexpectedEof("ResourcePack flags")); }
+                    if buf.remaining() < 2 {
+                        return Err(CoreError::UnexpectedEof("ResourcePack flags"));
+                    }
                     let has_scripts = buf.get_u8() != 0;
                     let rtx_enabled = buf.get_u8() != 0;
                     resource_packs.push(ResourcePackInfoEntry {
@@ -583,7 +613,9 @@ impl Packet {
                 }))
             }
             0x07 => {
-                if buf.remaining() < 1 { return Err(CoreError::UnexpectedEof("ResourcePackStack")); }
+                if buf.remaining() < 1 {
+                    return Err(CoreError::UnexpectedEof("ResourcePackStack"));
+                }
                 let must_accept = buf.get_u8() != 0;
                 let behavior_packs_len = get_var_u32(buf)? as usize;
                 let mut behavior_packs = Vec::new();
@@ -591,7 +623,11 @@ impl Packet {
                     let id = get_string(buf)?;
                     let version = get_string(buf)?;
                     let sub_pack_name = get_string(buf)?;
-                    behavior_packs.push(ResourcePackStackEntry { id, version, sub_pack_name });
+                    behavior_packs.push(ResourcePackStackEntry {
+                        id,
+                        version,
+                        sub_pack_name,
+                    });
                 }
                 let resource_packs_len = get_var_u32(buf)? as usize;
                 let mut resource_packs = Vec::new();
@@ -599,19 +635,35 @@ impl Packet {
                     let id = get_string(buf)?;
                     let version = get_string(buf)?;
                     let sub_pack_name = get_string(buf)?;
-                    resource_packs.push(ResourcePackStackEntry { id, version, sub_pack_name });
+                    resource_packs.push(ResourcePackStackEntry {
+                        id,
+                        version,
+                        sub_pack_name,
+                    });
                 }
                 let game_version = get_string(buf)?;
-                if buf.remaining() < 4 { return Err(CoreError::UnexpectedEof("ResourcePackStack experiments len")); }
+                if buf.remaining() < 4 {
+                    return Err(CoreError::UnexpectedEof(
+                        "ResourcePackStack experiments len",
+                    ));
+                }
                 let exp_len = buf.get_u32_le() as usize;
                 let mut experiments = Vec::new();
                 for _ in 0..exp_len {
                     let name = get_string(buf)?;
-                    if buf.remaining() < 1 { return Err(CoreError::UnexpectedEof("ResourcePackStack experiment enabled")); }
+                    if buf.remaining() < 1 {
+                        return Err(CoreError::UnexpectedEof(
+                            "ResourcePackStack experiment enabled",
+                        ));
+                    }
                     let enabled = buf.get_u8() != 0;
                     experiments.push(ExperimentEntry { name, enabled });
                 }
-                if buf.remaining() < 1 { return Err(CoreError::UnexpectedEof("ResourcePackStack experiments_previously_used")); }
+                if buf.remaining() < 1 {
+                    return Err(CoreError::UnexpectedEof(
+                        "ResourcePackStack experiments_previously_used",
+                    ));
+                }
                 let experiments_previously_used = buf.get_u8() != 0;
                 Ok(Self::ResourcePackStack(ResourcePackStackPacket {
                     must_accept,
@@ -623,21 +675,31 @@ impl Packet {
                 }))
             }
             0x08 => {
-                if buf.remaining() < 1 { return Err(CoreError::UnexpectedEof("ResourcePackClientResponse")); }
+                if buf.remaining() < 1 {
+                    return Err(CoreError::UnexpectedEof("ResourcePackClientResponse"));
+                }
                 let response_status = buf.get_u8();
-                if buf.remaining() < 2 { return Err(CoreError::UnexpectedEof("ResourcePackClientResponse list len")); }
+                if buf.remaining() < 2 {
+                    return Err(CoreError::UnexpectedEof(
+                        "ResourcePackClientResponse list len",
+                    ));
+                }
                 let len = buf.get_u16_le() as usize;
                 let mut resource_pack_ids = Vec::new();
                 for _ in 0..len {
                     resource_pack_ids.push(get_string(buf)?);
                 }
-                Ok(Self::ResourcePackClientResponse(ResourcePackClientResponsePacket {
-                    response_status,
-                    resource_pack_ids,
-                }))
+                Ok(Self::ResourcePackClientResponse(
+                    ResourcePackClientResponsePacket {
+                        response_status,
+                        resource_pack_ids,
+                    },
+                ))
             }
             0x09 => {
-                if buf.remaining() < 2 { return Err(CoreError::UnexpectedEof("Text header")); }
+                if buf.remaining() < 2 {
+                    return Err(CoreError::UnexpectedEof("Text header"));
+                }
                 let packet_type = buf.get_u8();
                 let needs_translation = buf.get_u8() != 0;
                 let mut source_name = String::new();
@@ -676,7 +738,9 @@ impl Packet {
                 let target_actor_id = get_zigzag_i64(buf)?;
                 let target_runtime_id = get_var_u64(buf)?;
                 let actor_game_mode = get_var_i32(buf)?;
-                if buf.remaining() < 20 { return Err(CoreError::UnexpectedEof("StartGame position/rotation")); }
+                if buf.remaining() < 20 {
+                    return Err(CoreError::UnexpectedEof("StartGame position/rotation"));
+                }
                 let position = Vector3f {
                     x: buf.get_f32_le(),
                     y: buf.get_f32_le(),
@@ -699,7 +763,9 @@ impl Packet {
             }
             0x13 => {
                 let runtime_id = get_var_u64(buf)?;
-                if buf.remaining() < 24 { return Err(CoreError::UnexpectedEof("MovePlayer body")); }
+                if buf.remaining() < 24 {
+                    return Err(CoreError::UnexpectedEof("MovePlayer body"));
+                }
                 let position = Vector3f {
                     x: buf.get_f32_le(),
                     y: buf.get_f32_le(),
@@ -708,14 +774,18 @@ impl Packet {
                 let pitch = buf.get_f32_le();
                 let yaw = buf.get_f32_le();
                 let head_yaw = buf.get_f32_le();
-                if buf.remaining() < 2 { return Err(CoreError::UnexpectedEof("MovePlayer footer")); }
+                if buf.remaining() < 2 {
+                    return Err(CoreError::UnexpectedEof("MovePlayer footer"));
+                }
                 let mode = buf.get_u8();
                 let on_ground = buf.get_u8() != 0;
                 let riding_runtime_id = get_var_u64(buf)?;
                 let mut teleport_cause = 0;
                 let mut teleport_item_id = 0;
                 if mode == 2 {
-                    if buf.remaining() < 8 { return Err(CoreError::UnexpectedEof("MovePlayer teleport details")); }
+                    if buf.remaining() < 8 {
+                        return Err(CoreError::UnexpectedEof("MovePlayer teleport details"));
+                    }
                     teleport_cause = buf.get_i32_le();
                     teleport_item_id = buf.get_i32_le();
                 }
@@ -750,7 +820,9 @@ impl Packet {
             }
             0x19 => {
                 let event_id = get_var_i32(buf)?;
-                if buf.remaining() < 12 { return Err(CoreError::UnexpectedEof("LevelEvent vector")); }
+                if buf.remaining() < 12 {
+                    return Err(CoreError::UnexpectedEof("LevelEvent vector"));
+                }
                 let position = Vector3f {
                     x: buf.get_f32_le(),
                     y: buf.get_f32_le(),
@@ -766,13 +838,17 @@ impl Packet {
             0x1f => {
                 let runtime_entity_id = get_var_u64(buf)?;
                 // skip item descriptor
-                if buf.remaining() < 1 { return Err(CoreError::UnexpectedEof("MobEquipment item desc tag")); }
+                if buf.remaining() < 1 {
+                    return Err(CoreError::UnexpectedEof("MobEquipment item desc tag"));
+                }
                 let desc_tag = buf.get_u8();
                 if desc_tag > 0 {
                     // skip simple item metadata fields if present
                     get_zigzag_i32(buf)?;
                 }
-                if buf.remaining() < 3 { return Err(CoreError::UnexpectedEof("MobEquipment slots")); }
+                if buf.remaining() < 3 {
+                    return Err(CoreError::UnexpectedEof("MobEquipment slots"));
+                }
                 let selected_slot = buf.get_u8();
                 let slot = buf.get_u8();
                 let container_id = buf.get_u8();
@@ -793,13 +869,19 @@ impl Packet {
                     let mut metadata_val = 0;
                     let mut block_runtime_id = 0;
                     if network_id > 0 {
-                        if buf.remaining() < 2 { return Err(CoreError::UnexpectedEof("InventoryContent item count")); }
+                        if buf.remaining() < 2 {
+                            return Err(CoreError::UnexpectedEof("InventoryContent item count"));
+                        }
                         count = buf.get_u16_le();
                         metadata_val = get_var_u32(buf)?;
                         block_runtime_id = get_zigzag_i32(buf)?;
                         // skip extra NBT / components
                         let extra_len = get_var_i32(buf)? as usize;
-                        if buf.remaining() < extra_len { return Err(CoreError::UnexpectedEof("InventoryContent item extra bytes")); }
+                        if buf.remaining() < extra_len {
+                            return Err(CoreError::UnexpectedEof(
+                                "InventoryContent item extra bytes",
+                            ));
+                        }
                         buf.advance(extra_len);
                     }
                     slots.push(InventoryItem {
@@ -822,12 +904,16 @@ impl Packet {
                 let mut metadata_val = 0;
                 let mut block_runtime_id = 0;
                 if network_id > 0 {
-                    if buf.remaining() < 2 { return Err(CoreError::UnexpectedEof("InventorySlot item count")); }
+                    if buf.remaining() < 2 {
+                        return Err(CoreError::UnexpectedEof("InventorySlot item count"));
+                    }
                     count = buf.get_u16_le();
                     metadata_val = get_var_u32(buf)?;
                     block_runtime_id = get_zigzag_i32(buf)?;
                     let extra_len = get_var_i32(buf)? as usize;
-                    if buf.remaining() < extra_len { return Err(CoreError::UnexpectedEof("InventorySlot item extra bytes")); }
+                    if buf.remaining() < extra_len {
+                        return Err(CoreError::UnexpectedEof("InventorySlot item extra bytes"));
+                    }
                     buf.advance(extra_len);
                 }
                 Ok(Self::InventorySlot(InventorySlotPacket {
@@ -844,7 +930,9 @@ impl Packet {
                 let runtime_entity_id = get_var_u64(buf)?;
                 let mut rowing_time = 0.0;
                 if action_id == 1 {
-                    if buf.remaining() < 4 { return Err(CoreError::UnexpectedEof("Animate rowing_time")); }
+                    if buf.remaining() < 4 {
+                        return Err(CoreError::UnexpectedEof("Animate rowing_time"));
+                    }
                     rowing_time = buf.get_f32_le();
                 }
                 Ok(Self::Animate(AnimatePacket {
@@ -854,7 +942,9 @@ impl Packet {
                 }))
             }
             0x2d => {
-                if buf.remaining() < 13 { return Err(CoreError::UnexpectedEof("Respawn header")); }
+                if buf.remaining() < 13 {
+                    return Err(CoreError::UnexpectedEof("Respawn header"));
+                }
                 let position = Vector3f {
                     x: buf.get_f32_le(),
                     y: buf.get_f32_le(),
@@ -872,7 +962,9 @@ impl Packet {
                 let len = get_var_u32(buf)? as usize;
                 let mut output_messages = Vec::new();
                 for _ in 0..len {
-                    if buf.remaining() < 1 { return Err(CoreError::UnexpectedEof("CommandOutput message type")); }
+                    if buf.remaining() < 1 {
+                        return Err(CoreError::UnexpectedEof("CommandOutput message type"));
+                    }
                     let is_internal = buf.get_u8() != 0;
                     let message_id = get_string(buf)?;
                     let params_len = get_var_u32(buf)? as usize;
@@ -898,7 +990,9 @@ impl Packet {
             }
             0x65 => {
                 let form_id = get_var_u32(buf)?;
-                if buf.remaining() < 1 { return Err(CoreError::UnexpectedEof("ModalFormResponse has_response")); }
+                if buf.remaining() < 1 {
+                    return Err(CoreError::UnexpectedEof("ModalFormResponse has_response"));
+                }
                 let has_response_data = buf.get_u8() != 0;
                 let response_data = if has_response_data {
                     get_string(buf)?
@@ -923,12 +1017,14 @@ impl Packet {
             }
             0x71 => {
                 let runtime_entity_id = get_var_u64(buf)?;
-                Ok(Self::SetLocalPlayerAsInitialized(SetLocalPlayerAsInitializedPacket {
-                    runtime_entity_id,
-                }))
+                Ok(Self::SetLocalPlayerAsInitialized(
+                    SetLocalPlayerAsInitializedPacket { runtime_entity_id },
+                ))
             }
             0x73 => {
-                if buf.remaining() < 9 { return Err(CoreError::UnexpectedEof("NetworkStackLatency")); }
+                if buf.remaining() < 9 {
+                    return Err(CoreError::UnexpectedEof("NetworkStackLatency"));
+                }
                 let timestamp = buf.get_u64_le();
                 let needs_response = buf.get_u8() != 0;
                 Ok(Self::NetworkStackLatency(NetworkStackLatencyPacket {
@@ -937,7 +1033,9 @@ impl Packet {
                 }))
             }
             0x81 => {
-                if buf.remaining() < 1 { return Err(CoreError::UnexpectedEof("ClientCacheStatus")); }
+                if buf.remaining() < 1 {
+                    return Err(CoreError::UnexpectedEof("ClientCacheStatus"));
+                }
                 let support_client_cache = buf.get_u8() != 0;
                 Ok(Self::ClientCacheStatus(ClientCacheStatusPacket {
                     support_client_cache,
@@ -947,7 +1045,9 @@ impl Packet {
                 let responses_len = get_var_u32(buf)? as usize;
                 let mut responses = Vec::new();
                 for _ in 0..responses_len {
-                    if buf.remaining() < 1 { return Err(CoreError::UnexpectedEof("ItemStackResponse status")); }
+                    if buf.remaining() < 1 {
+                        return Err(CoreError::UnexpectedEof("ItemStackResponse status"));
+                    }
                     let status = buf.get_u8();
                     let client_request_id = get_var_i32(buf)?;
                     responses.push(ItemStackResponseEntry {
@@ -955,10 +1055,14 @@ impl Packet {
                         client_request_id,
                     });
                 }
-                Ok(Self::ItemStackResponse(ItemStackResponsePacket { responses }))
+                Ok(Self::ItemStackResponse(ItemStackResponsePacket {
+                    responses,
+                }))
             }
             0xa1 => {
-                if buf.remaining() < 25 { return Err(CoreError::UnexpectedEof("CorrectPlayerMovePrediction")); }
+                if buf.remaining() < 25 {
+                    return Err(CoreError::UnexpectedEof("CorrectPlayerMovePrediction"));
+                }
                 let position = Vector3f {
                     x: buf.get_f32_le(),
                     y: buf.get_f32_le(),
@@ -971,12 +1075,14 @@ impl Packet {
                 };
                 let on_ground = buf.get_u8() != 0;
                 let tick = get_var_u64(buf)?;
-                Ok(Self::CorrectPlayerMovePrediction(CorrectPlayerMovePredictionPacket {
-                    position,
-                    delta,
-                    on_ground,
-                    tick,
-                }))
+                Ok(Self::CorrectPlayerMovePrediction(
+                    CorrectPlayerMovePredictionPacket {
+                        position,
+                        delta,
+                        on_ground,
+                        tick,
+                    },
+                ))
             }
             0x1e => {
                 let transaction_type = get_var_u32(buf)?;
@@ -1323,7 +1429,8 @@ mod tests {
             client_data_jwt: "client.jwt.token".to_string(),
         });
         let bytes = original.encode(ProtocolVersion::V898).unwrap();
-        let decoded = Packet::decode(original.id(), &mut bytes.clone(), ProtocolVersion::V898).unwrap();
+        let decoded =
+            Packet::decode(original.id(), &mut bytes.clone(), ProtocolVersion::V898).unwrap();
         assert_eq!(original, decoded);
     }
 
@@ -1331,7 +1438,8 @@ mod tests {
     fn test_play_status_roundtrip() {
         let original = Packet::PlayStatus(PlayStatusPacket { status: 3 });
         let bytes = original.encode(ProtocolVersion::V898).unwrap();
-        let decoded = Packet::decode(original.id(), &mut bytes.clone(), ProtocolVersion::V898).unwrap();
+        let decoded =
+            Packet::decode(original.id(), &mut bytes.clone(), ProtocolVersion::V898).unwrap();
         assert_eq!(original, decoded);
     }
 }

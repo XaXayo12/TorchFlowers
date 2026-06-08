@@ -18,7 +18,7 @@ pub struct ServerStatus {
 pub async fn ping(host: &str, port: u16) -> Result<ServerStatus, anyhow::Error> {
     let client = NativePingClient::new(Duration::from_secs(5));
     let response = client.ping(host, port).await?;
-    
+
     Ok(ServerStatus {
         motd: response.motd.name,
         level_name: response.motd.sub_name,

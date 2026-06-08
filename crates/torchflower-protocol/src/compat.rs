@@ -17,10 +17,14 @@ use crate::*;
 pub struct ActorRuntimeID(pub u64);
 
 impl From<u64> for ActorRuntimeID {
-    fn from(v: u64) -> Self { Self(v) }
+    fn from(v: u64) -> Self {
+        Self(v)
+    }
 }
 impl From<ActorRuntimeID> for u64 {
-    fn from(v: ActorRuntimeID) -> Self { v.0 }
+    fn from(v: ActorRuntimeID) -> Self {
+        v.0
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -32,63 +36,65 @@ impl From<ActorRuntimeID> for u64 {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub enum ResourcePackResponse {
-    None          = 0,
-    Refused       = 1,
-    SendPacks     = 2,
+    None = 0,
+    Refused = 1,
+    SendPacks = 2,
     AllPacksDownloaded = 3,
-    Completed     = 4,
+    Completed = 4,
 }
 impl ResourcePackResponse {
-    pub fn as_u8(self) -> u8 { self as u8 }
+    pub fn as_u8(self) -> u8 {
+        self as u8
+    }
 }
 
 /// Play-status byte values (old `PlayStatus` enum).
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayStatus {
-    LoginSuccess      = 0,
+    LoginSuccess = 0,
     LoginFailedClient = 1,
     LoginFailedServer = 2,
-    PlayerSpawn       = 3,
+    PlayerSpawn = 3,
     LoginFailedInvalidTenant = 4,
-    LoginFailedVanillaEdu    = 5,
-    LoginFailedEduVanilla    = 6,
-    LoginFailedServerFull    = 7,
+    LoginFailedVanillaEdu = 5,
+    LoginFailedEduVanilla = 6,
+    LoginFailedServerFull = 7,
 }
 
 /// Player action types (old `PlayerActionType` enum).
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerActionType {
-    StartBreak           = 0,
-    AbortBreak           = 1,
-    StopBreak            = 2,
-    GetUpdatedBlock      = 3,
-    DropItem             = 4,
-    StartSleeping        = 5,
-    StopSleeping         = 6,
-    Respawn              = 7,
-    Jump                 = 8,
-    StartSprint          = 9,
-    StopSprint           = 10,
-    StartSneak           = 11,
-    StopSneak            = 12,
+    StartBreak = 0,
+    AbortBreak = 1,
+    StopBreak = 2,
+    GetUpdatedBlock = 3,
+    DropItem = 4,
+    StartSleeping = 5,
+    StopSleeping = 6,
+    Respawn = 7,
+    Jump = 8,
+    StartSprint = 9,
+    StopSprint = 10,
+    StartSneak = 11,
+    StopSneak = 12,
     CreativePlayerDestroyBlock = 13,
-    DimensionChangeAck   = 14,
-    StartGlide           = 15,
-    StopGlide            = 16,
-    BuildDenied          = 17,
+    DimensionChangeAck = 14,
+    StartGlide = 15,
+    StopGlide = 16,
+    BuildDenied = 17,
     ContinueDestroyBlock = 18,
-    PredictiveBreak      = 38,
+    PredictiveBreak = 38,
 }
 
 /// Player position mode byte values (old `PlayerPositionMode` enum).
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlayerPositionMode {
-    Normal    = 0,
-    Reset     = 1,
-    Teleport  = 2,
+    Normal = 0,
+    Reset = 1,
+    Teleport = 2,
     OnlyHeadRot = 3,
 }
 
@@ -96,21 +102,21 @@ pub enum PlayerPositionMode {
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContainerID {
-    Inventory        = 0,
-    Offhand          = 119,
-    Armor            = 120,
-    CreativeOutput   = 121,
-    Hotbar           = 27,
-    PlayerInventory  = 28,
-    Ui               = 124,
+    Inventory = 0,
+    Offhand = 119,
+    Armor = 120,
+    CreativeOutput = 121,
+    Hotbar = 27,
+    PlayerInventory = 28,
+    Ui = 124,
 }
 
 /// Complex inventory transaction types (old `ComplexInventoryTransactionType`).
 #[repr(u32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComplexInventoryTransactionType {
-    NormalTransaction  = 0,
-    InventoryMismatch  = 1,
+    NormalTransaction = 0,
+    InventoryMismatch = 1,
     ItemUseTransaction = 2,
     ItemUseOnEntityTransaction = 3,
     ItemReleaseTransaction = 4,
@@ -126,59 +132,59 @@ pub enum ComplexInventoryTransactionType {
 pub struct PlayerAuthInputFlags;
 
 impl PlayerAuthInputFlags {
-    pub const Ascend:                    u128 = 1 << 0;
-    pub const Descend:                   u128 = 1 << 1;
-    pub const NorthJump:                 u128 = 1 << 2;
-    pub const JumpDown:                  u128 = 1 << 3;
-    pub const SprintDown:                u128 = 1 << 4;
-    pub const ChangeHeight:              u128 = 1 << 5;
-    pub const Jumping:                   u128 = 1 << 6;
-    pub const AutoJumpingInWater:        u128 = 1 << 7;
-    pub const Sneaking:                  u128 = 1 << 8;
-    pub const SneakDown:                 u128 = 1 << 9;
-    pub const Up:                        u128 = 1 << 10;
-    pub const Down:                      u128 = 1 << 11;
-    pub const Left:                      u128 = 1 << 12;
-    pub const Right:                     u128 = 1 << 13;
-    pub const UpLeft:                    u128 = 1 << 14;
-    pub const UpRight:                   u128 = 1 << 15;
-    pub const WantUp:                    u128 = 1 << 16;
-    pub const WantDown:                  u128 = 1 << 17;
-    pub const WantDownSlow:              u128 = 1 << 18;
-    pub const WantUpSlow:                u128 = 1 << 19;
-    pub const Sprinting:                 u128 = 1 << 20;
-    pub const AscendScaffolding:         u128 = 1 << 21;
-    pub const DescendScaffolding:        u128 = 1 << 22;
-    pub const SneakToggleDown:           u128 = 1 << 23;
-    pub const PersistSneak:              u128 = 1 << 24;
-    pub const StartSprinting:            u128 = 1 << 25;
-    pub const StopSprinting:             u128 = 1 << 26;
-    pub const StartSneaking:             u128 = 1 << 27;
-    pub const StopSneaking:              u128 = 1 << 28;
-    pub const StartSwimmingDown:         u128 = 1 << 29;
-    pub const StopSwimmingDown:          u128 = 1 << 30;
-    pub const StartGliding:              u128 = 1 << 31;
-    pub const StopGliding:               u128 = 1 << 32;
-    pub const PerformItemInteraction:    u128 = 1 << 33;
-    pub const PerformBlockActions:       u128 = 1 << 34;
-    pub const PerformItemStackRequest:   u128 = 1 << 35;
-    pub const HandledTeleport:           u128 = 1 << 36;
-    pub const Emoting:                   u128 = 1 << 37;
-    pub const MissedSwing:               u128 = 1 << 38;
-    pub const StartCrawling:             u128 = 1 << 39;
-    pub const StopCrawling:              u128 = 1 << 40;
-    pub const StartFlying:               u128 = 1 << 41;
-    pub const StopFlying:                u128 = 1 << 42;
-    pub const AckEntityData:             u128 = 1 << 43;
-    pub const IsInClientPredictedVehicle:u128 = 1 << 44;
-    pub const PaddlingLeft:              u128 = 1 << 45;
-    pub const PaddlingRight:             u128 = 1 << 46;
+    pub const Ascend: u128 = 1 << 0;
+    pub const Descend: u128 = 1 << 1;
+    pub const NorthJump: u128 = 1 << 2;
+    pub const JumpDown: u128 = 1 << 3;
+    pub const SprintDown: u128 = 1 << 4;
+    pub const ChangeHeight: u128 = 1 << 5;
+    pub const Jumping: u128 = 1 << 6;
+    pub const AutoJumpingInWater: u128 = 1 << 7;
+    pub const Sneaking: u128 = 1 << 8;
+    pub const SneakDown: u128 = 1 << 9;
+    pub const Up: u128 = 1 << 10;
+    pub const Down: u128 = 1 << 11;
+    pub const Left: u128 = 1 << 12;
+    pub const Right: u128 = 1 << 13;
+    pub const UpLeft: u128 = 1 << 14;
+    pub const UpRight: u128 = 1 << 15;
+    pub const WantUp: u128 = 1 << 16;
+    pub const WantDown: u128 = 1 << 17;
+    pub const WantDownSlow: u128 = 1 << 18;
+    pub const WantUpSlow: u128 = 1 << 19;
+    pub const Sprinting: u128 = 1 << 20;
+    pub const AscendScaffolding: u128 = 1 << 21;
+    pub const DescendScaffolding: u128 = 1 << 22;
+    pub const SneakToggleDown: u128 = 1 << 23;
+    pub const PersistSneak: u128 = 1 << 24;
+    pub const StartSprinting: u128 = 1 << 25;
+    pub const StopSprinting: u128 = 1 << 26;
+    pub const StartSneaking: u128 = 1 << 27;
+    pub const StopSneaking: u128 = 1 << 28;
+    pub const StartSwimmingDown: u128 = 1 << 29;
+    pub const StopSwimmingDown: u128 = 1 << 30;
+    pub const StartGliding: u128 = 1 << 31;
+    pub const StopGliding: u128 = 1 << 32;
+    pub const PerformItemInteraction: u128 = 1 << 33;
+    pub const PerformBlockActions: u128 = 1 << 34;
+    pub const PerformItemStackRequest: u128 = 1 << 35;
+    pub const HandledTeleport: u128 = 1 << 36;
+    pub const Emoting: u128 = 1 << 37;
+    pub const MissedSwing: u128 = 1 << 38;
+    pub const StartCrawling: u128 = 1 << 39;
+    pub const StopCrawling: u128 = 1 << 40;
+    pub const StartFlying: u128 = 1 << 41;
+    pub const StopFlying: u128 = 1 << 42;
+    pub const AckEntityData: u128 = 1 << 43;
+    pub const IsInClientPredictedVehicle: u128 = 1 << 44;
+    pub const PaddlingLeft: u128 = 1 << 45;
+    pub const PaddlingRight: u128 = 1 << 46;
     pub const BlockBreakingDelayEnabled: u128 = 1 << 47;
-    pub const HorizontalCollision:       u128 = 1 << 48;
-    pub const VerticalCollision:         u128 = 1 << 49;
-    pub const DownLeft:                  u128 = 1 << 50;
-    pub const DownRight:                 u128 = 1 << 51;
-    pub const ReceivedServerData:        u128 = 1 << 52;
+    pub const HorizontalCollision: u128 = 1 << 48;
+    pub const VerticalCollision: u128 = 1 << 49;
+    pub const DownLeft: u128 = 1 << 50;
+    pub const DownRight: u128 = 1 << 51;
+    pub const ReceivedServerData: u128 = 1 << 52;
 }
 
 // ---------------------------------------------------------------------------
@@ -189,17 +195,17 @@ impl PlayerAuthInputFlags {
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TextPacketType {
-    Raw             = 0,
-    Chat            = 1,
-    Translation     = 2,
-    Popup           = 3,
-    JukeboxPopup    = 4,
-    Tip             = 5,
-    System          = 6,
-    Whisper         = 7,
-    Announcement    = 8,
-    JsonWhisper     = 9,
-    Json            = 10,
+    Raw = 0,
+    Chat = 1,
+    Translation = 2,
+    Popup = 3,
+    JukeboxPopup = 4,
+    Tip = 5,
+    System = 6,
+    Whisper = 7,
+    Announcement = 8,
+    JsonWhisper = 9,
+    Json = 10,
     JsonAnnouncement = 11,
 }
 
@@ -291,30 +297,30 @@ pub struct InventoryTransaction {
 // the bulk rename in the import block below.
 
 // These are all re-exported under the old names so the code compiles:
-pub use crate::PlayStatusPacket;
-pub use crate::ServerToClientHandshakePacket;
+pub use crate::AnimatePacket;
+pub use crate::ClientCacheStatusPacket;
 pub use crate::ClientToServerHandshakePacket;
+pub use crate::CommandOutputPacket;
+pub use crate::CorrectPlayerMovePredictionPacket;
 pub use crate::DisconnectPacket;
-pub use crate::ResourcePacksInfoPacket;
-pub use crate::ResourcePackStackPacket;
-pub use crate::ResourcePackClientResponsePacket;
-pub use crate::TextPacket;
-pub use crate::StartGamePacket;
-pub use crate::MovePlayerPacket;
-pub use crate::UpdateBlockPacket;
-pub use crate::LevelEventPacket;
-pub use crate::MobEquipmentPacket;
 pub use crate::InventoryContentPacket;
 pub use crate::InventorySlotPacket;
-pub use crate::AnimatePacket;
-pub use crate::RespawnPacket;
-pub use crate::CommandOutputPacket;
+pub use crate::InventoryTransactionPacket;
+pub use crate::ItemStackResponsePacket;
+pub use crate::LevelEventPacket;
+pub use crate::MobEquipmentPacket;
 pub use crate::ModalFormRequestPacket;
 pub use crate::ModalFormResponsePacket;
-pub use crate::SetLocalPlayerAsInitializedPacket;
+pub use crate::MovePlayerPacket;
 pub use crate::NetworkStackLatencyPacket;
-pub use crate::ClientCacheStatusPacket;
-pub use crate::ItemStackResponsePacket;
-pub use crate::CorrectPlayerMovePredictionPacket;
-pub use crate::InventoryTransactionPacket;
+pub use crate::PlayStatusPacket;
 pub use crate::RequestChunkRadiusPacket;
+pub use crate::ResourcePackClientResponsePacket;
+pub use crate::ResourcePackStackPacket;
+pub use crate::ResourcePacksInfoPacket;
+pub use crate::RespawnPacket;
+pub use crate::ServerToClientHandshakePacket;
+pub use crate::SetLocalPlayerAsInitializedPacket;
+pub use crate::StartGamePacket;
+pub use crate::TextPacket;
+pub use crate::UpdateBlockPacket;

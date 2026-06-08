@@ -565,9 +565,12 @@ impl BotSession {
     ) -> BotResult<CapabilityStatus> {
         self.db.get_account(&self.account_id).await?;
         if run_gameplay_validation {
-            let session = crate::auth::entitlement::EntitlementProvisioner::new(&self._config, self.db.clone())
-                .provision(&self.account_id)
-                .await?;
+            let session = crate::auth::entitlement::EntitlementProvisioner::new(
+                &self._config,
+                self.db.clone(),
+            )
+            .provision(&self.account_id)
+            .await?;
             let report = crate::bedrock::session::BedrockBotSession::new(self.db.clone())
                 .validate_real_server_for(
                     &self.account_id,

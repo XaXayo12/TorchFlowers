@@ -2,10 +2,6 @@ use base64::{
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
     Engine as _,
 };
-use torchflower_protocol::{
-    Packet as BedrockProto, ProtocolVersion as ProtoVersion,
-    RequestNetworkSettingsPacket, ClientToServerHandshakePacket,
-};
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use p384::{
     pkcs8::{DecodePrivateKey, DecodePublicKey},
@@ -16,6 +12,10 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     env,
     sync::atomic::{AtomicUsize, Ordering},
+};
+use torchflower_protocol::{
+    ClientToServerHandshakePacket, Packet as BedrockProto, ProtocolVersion as ProtoVersion,
+    RequestNetworkSettingsPacket,
 };
 
 use crate::{
@@ -189,8 +189,7 @@ impl BedrockProtocolAdapter {
     pub async fn connect(host: &str, port: u16) -> EngineResult<Self> {
         let version = login_proto_version();
         Ok(Self {
-            transport: RaknetClientAdapter::connect(host, port, 11)
-                .await?,
+            transport: RaknetClientAdapter::connect(host, port, 11).await?,
             compression: None,
             encryption: None,
             server_address: login_server_address(host, port),

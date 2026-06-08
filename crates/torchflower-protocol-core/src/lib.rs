@@ -218,48 +218,75 @@ fn skip_nbt_string<B: Buf>(buf: &mut B) -> Result<(), CoreError> {
 fn skip_nbt_payload<B: Buf>(buf: &mut B, tag: u8) -> Result<(), CoreError> {
     match tag {
         0 => Ok(()),
-        1 => { // Byte
-            if buf.remaining() < 1 { return Err(CoreError::UnexpectedEof("NBT byte")); }
+        1 => {
+            // Byte
+            if buf.remaining() < 1 {
+                return Err(CoreError::UnexpectedEof("NBT byte"));
+            }
             buf.get_u8();
             Ok(())
         }
-        2 => { // Short
-            if buf.remaining() < 2 { return Err(CoreError::UnexpectedEof("NBT short")); }
+        2 => {
+            // Short
+            if buf.remaining() < 2 {
+                return Err(CoreError::UnexpectedEof("NBT short"));
+            }
             buf.get_i16_le();
             Ok(())
         }
-        3 => { // Int
-            if buf.remaining() < 4 { return Err(CoreError::UnexpectedEof("NBT int")); }
+        3 => {
+            // Int
+            if buf.remaining() < 4 {
+                return Err(CoreError::UnexpectedEof("NBT int"));
+            }
             buf.get_i32_le();
             Ok(())
         }
-        4 => { // Long
-            if buf.remaining() < 8 { return Err(CoreError::UnexpectedEof("NBT long")); }
+        4 => {
+            // Long
+            if buf.remaining() < 8 {
+                return Err(CoreError::UnexpectedEof("NBT long"));
+            }
             buf.get_i64_le();
             Ok(())
         }
-        5 => { // Float
-            if buf.remaining() < 4 { return Err(CoreError::UnexpectedEof("NBT float")); }
+        5 => {
+            // Float
+            if buf.remaining() < 4 {
+                return Err(CoreError::UnexpectedEof("NBT float"));
+            }
             buf.get_f32_le();
             Ok(())
         }
-        6 => { // Double
-            if buf.remaining() < 8 { return Err(CoreError::UnexpectedEof("NBT double")); }
+        6 => {
+            // Double
+            if buf.remaining() < 8 {
+                return Err(CoreError::UnexpectedEof("NBT double"));
+            }
             buf.get_f64_le();
             Ok(())
         }
-        7 => { // Byte Array
-            if buf.remaining() < 4 { return Err(CoreError::UnexpectedEof("NBT byte array len")); }
+        7 => {
+            // Byte Array
+            if buf.remaining() < 4 {
+                return Err(CoreError::UnexpectedEof("NBT byte array len"));
+            }
             let len = buf.get_i32_le() as usize;
-            if buf.remaining() < len { return Err(CoreError::UnexpectedEof("NBT byte array body")); }
+            if buf.remaining() < len {
+                return Err(CoreError::UnexpectedEof("NBT byte array body"));
+            }
             buf.advance(len);
             Ok(())
         }
-        8 => { // String
+        8 => {
+            // String
             skip_nbt_string(buf)
         }
-        9 => { // List
-            if buf.remaining() < 5 { return Err(CoreError::UnexpectedEof("NBT list header")); }
+        9 => {
+            // List
+            if buf.remaining() < 5 {
+                return Err(CoreError::UnexpectedEof("NBT list header"));
+            }
             let sub_tag = buf.get_u8();
             let len = buf.get_i32_le() as usize;
             for _ in 0..len {
@@ -267,9 +294,12 @@ fn skip_nbt_payload<B: Buf>(buf: &mut B, tag: u8) -> Result<(), CoreError> {
             }
             Ok(())
         }
-        10 => { // Compound
+        10 => {
+            // Compound
             loop {
-                if buf.remaining() < 1 { return Err(CoreError::UnexpectedEof("NBT compound tag")); }
+                if buf.remaining() < 1 {
+                    return Err(CoreError::UnexpectedEof("NBT compound tag"));
+                }
                 let sub_tag = buf.get_u8();
                 if sub_tag == 0 {
                     break;
@@ -279,17 +309,27 @@ fn skip_nbt_payload<B: Buf>(buf: &mut B, tag: u8) -> Result<(), CoreError> {
             }
             Ok(())
         }
-        11 => { // Int Array
-            if buf.remaining() < 4 { return Err(CoreError::UnexpectedEof("NBT int array len")); }
+        11 => {
+            // Int Array
+            if buf.remaining() < 4 {
+                return Err(CoreError::UnexpectedEof("NBT int array len"));
+            }
             let len = buf.get_i32_le() as usize;
-            if buf.remaining() < len * 4 { return Err(CoreError::UnexpectedEof("NBT int array body")); }
+            if buf.remaining() < len * 4 {
+                return Err(CoreError::UnexpectedEof("NBT int array body"));
+            }
             buf.advance(len * 4);
             Ok(())
         }
-        12 => { // Long Array
-            if buf.remaining() < 4 { return Err(CoreError::UnexpectedEof("NBT long array len")); }
+        12 => {
+            // Long Array
+            if buf.remaining() < 4 {
+                return Err(CoreError::UnexpectedEof("NBT long array len"));
+            }
             let len = buf.get_i32_le() as usize;
-            if buf.remaining() < len * 8 { return Err(CoreError::UnexpectedEof("NBT long array body")); }
+            if buf.remaining() < len * 8 {
+                return Err(CoreError::UnexpectedEof("NBT long array body"));
+            }
             buf.advance(len * 8);
             Ok(())
         }

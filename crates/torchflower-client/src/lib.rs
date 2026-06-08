@@ -1,13 +1,13 @@
+use bytes::{Buf, BufMut, BytesMut};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
-use bytes::{BytesMut, Buf, BufMut};
 use torchflower_network::Connection as RakConnection;
-use torchflower_protocol_core::{get_var_u32, put_var_u32};
 use torchflower_protocol::{
-    Packet, ProtocolVersion, RequestNetworkSettingsPacket, LoginPacket,
-    ResourcePackClientResponsePacket, SetLocalPlayerAsInitializedPacket, NetworkStackLatencyPacket
+    LoginPacket, NetworkStackLatencyPacket, Packet, ProtocolVersion, RequestNetworkSettingsPacket,
+    ResourcePackClientResponsePacket, SetLocalPlayerAsInitializedPacket,
 };
+use torchflower_protocol_core::{get_var_u32, put_var_u32};
 
 #[derive(Debug, Clone)]
 pub struct ClientOptions {
@@ -84,17 +84,17 @@ impl Client {
         let _len = get_var_u32(&mut settings_buf)?;
         let packet_id = get_var_u32(&mut settings_buf)?;
         if packet_id != 0xc2 {
-            return Err(anyhow::anyhow!("Expected NetworkSettings (0xc2), got 0x{:02x}", packet_id));
+            return Err(anyhow::anyhow!(
+                "Expected NetworkSettings (0xc2), got 0x{:02x}",
+                packet_id
+            ));
         }
         let settings = Packet::decode(0xc2, &mut settings_buf, options.protocol_version)?;
 
         // 3. Send Login
         // In native mode, if AuthConfig is present, we could generate Xbox live token.
         // For simple native client, we package a local mock/offline chain:
-        let chain_json = format!(
-            "{{\"chain\":[\"{}\"]}}",
-            options.username
-        );
+        let chain_json = format!("{{\"chain\":[\"{}\"]}}", options.username);
         let client_data_jwt = "mock.jwt.payload".to_string();
 
         let login_packet = Packet::Login(LoginPacket {
@@ -125,34 +125,38 @@ impl Client {
 
             match &packet {
                 Packet::PlayStatus(p) => {
-                    if p.status == 0 { // Login success
+                    if p.status == 0 {
+                        // Login success
                         play_status_received = true;
                     }
                 }
                 Packet::ResourcePacksInfo(p) => {
                     resource_packs_received = true;
                     // Respond completed
-                    let resp = Packet::ResourcePackClientResponse(ResourcePackClientResponsePacket {
-                        response_status: 3, // completed
-                        resource_pack_ids: vec![],
-                    });
+                    let resp =
+                        Packet::ResourcePackClientResponse(ResourcePackClientResponsePacket {
+                            response_status: 3, // completed
+                            resource_pack_ids: vec![],
+                        });
                     Self::send_raw_packet(&rak_conn, &resp, options.protocol_version).await?;
                 }
                 Packet::ResourcePackStack(_) => {
                     resource_stack_received = true;
-                    let resp = Packet::ResourcePackClientResponse(ResourcePackClientResponsePacket {
-                        response_status: 4, // completed
-                        resource_pack_ids: vec![],
-                    });
+                    let resp =
+                        Packet::ResourcePackClientResponse(ResourcePackClientResponsePacket {
+                            response_status: 4, // completed
+                            resource_pack_ids: vec![],
+                        });
                     Self::send_raw_packet(&rak_conn, &resp, options.protocol_version).await?;
                 }
                 Packet::StartGame(p) => {
                     // Send SetLocalPlayerAsInitialized
-                    let init = Packet::SetLocalPlayerAsInitialized(SetLocalPlayerAsInitializedPacket {
-                        runtime_entity_id: p.target_runtime_id,
-                    });
+                    let init =
+                        Packet::SetLocalPlayerAsInitialized(SetLocalPlayerAsInitializedPacket {
+                            runtime_entity_id: p.target_runtime_id,
+                        });
                     Self::send_raw_packet(&rak_conn, &init, options.protocol_version).await?;
-                    
+
                     tx.send(ClientEvent::Connected).await?;
                     break;
                 }
@@ -192,7 +196,8 @@ impl Client {
                 tx.send(ClientEvent::Text {
                     source: p.source_name.clone(),
                     message: p.message.clone(),
-                }).await?;
+                })
+                .await?;
             }
 
             tx.send(ClientEvent::Packet(packet)).await?;

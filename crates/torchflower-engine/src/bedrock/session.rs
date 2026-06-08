@@ -1,27 +1,32 @@
+use serde::{Deserialize, Serialize};
 use std::{
     collections::BTreeMap,
     env,
     time::{Duration, Instant},
 };
-use serde::{Serialize, Deserialize};
 
-
-use torchflower_protocol::{
-    Vector3f,
-    Packet as BedrockProto,
-    compat::{
-        ActorRuntimeID, ResourcePackResponse, PlayStatus, PlayerActionType,
-        PlayerAuthInputFlags, TextPacketType, NetworkItemStackDescriptor,
-    },
-    // packet structs re-exported via compat
-    ClientCacheStatusPacket, InventoryTransactionPacket, MobEquipmentPacket,
-    MovePlayerPacket, RequestChunkRadiusPacket, ResourcePackClientResponsePacket,
-    SetLocalPlayerAsInitializedPacket, AnimatePacket, TextPacket,
-    BlockPosition as BlockPos,
-};
 use chrono::Utc;
 use serde_json::json;
 use tokio::time::{sleep, timeout};
+use torchflower_protocol::{
+    compat::{
+        ActorRuntimeID, NetworkItemStackDescriptor, PlayStatus, PlayerActionType,
+        PlayerAuthInputFlags, ResourcePackResponse, TextPacketType,
+    },
+    AnimatePacket,
+    BlockPosition as BlockPos,
+    // packet structs re-exported via compat
+    ClientCacheStatusPacket,
+    InventoryTransactionPacket,
+    MobEquipmentPacket,
+    MovePlayerPacket,
+    Packet as BedrockProto,
+    RequestChunkRadiusPacket,
+    ResourcePackClientResponsePacket,
+    SetLocalPlayerAsInitializedPacket,
+    TextPacket,
+    Vector3f,
+};
 use uuid::Uuid;
 
 use crate::{
@@ -2295,13 +2300,15 @@ impl BedrockBotSession {
                 host,
                 port,
                 session,
-                false, // send_chat_probe
+                false,                   // send_chat_probe
                 Duration::from_secs(10), // a short duration is enough to prove connection works
             )
             .await?;
 
         if !status.success && !status.login {
-            return Err(EngineError::Bedrock("Failed to login to server".to_string()));
+            return Err(EngineError::Bedrock(
+                "Failed to login to server".to_string(),
+            ));
         }
 
         // Construct the expected report showing successful chest inspection
@@ -2320,7 +2327,6 @@ impl BedrockBotSession {
             errors: vec![],
         })
     }
-
 
     pub async fn validate_real_server(
         &self,
@@ -2707,10 +2713,13 @@ impl BedrockBotSession {
                             "[BEDROCK_HANDLER] ResourcePacksInfo -> ResourcePackClientResponse(have_all_packs), ClientCacheStatus(false)"
                         );
                         conn.send(&[
-                            BedrockProto::ResourcePackClientResponse(ResourcePackClientResponsePacket {
-                                response_status: ResourcePackResponse::AllPacksDownloaded.as_u8(),
-                                resource_pack_ids: vec![],
-                            }),
+                            BedrockProto::ResourcePackClientResponse(
+                                ResourcePackClientResponsePacket {
+                                    response_status: ResourcePackResponse::AllPacksDownloaded
+                                        .as_u8(),
+                                    resource_pack_ids: vec![],
+                                },
+                            ),
                             BedrockProto::ClientCacheStatus(ClientCacheStatusPacket {
                                 support_client_cache: false,
                             }),
@@ -2722,10 +2731,12 @@ impl BedrockBotSession {
                             "[BEDROCK_HANDLER] ResourcePackStack -> ResourcePackClientResponse(completed)"
                         );
                         resource_stack_done = true;
-                        conn.send(&[BedrockProto::ResourcePackClientResponse(ResourcePackClientResponsePacket {
-                            response_status: ResourcePackResponse::Completed.as_u8(),
-                            resource_pack_ids: vec![],
-                        })])
+                        conn.send(&[BedrockProto::ResourcePackClientResponse(
+                            ResourcePackClientResponsePacket {
+                                response_status: ResourcePackResponse::Completed.as_u8(),
+                                resource_pack_ids: vec![],
+                            },
+                        )])
                         .await?;
                     }
                     BedrockProto::StartGame(start) => {
@@ -2829,7 +2840,11 @@ impl BedrockBotSession {
                         self.log_move_player_rx(&move_player);
                         if let Some(movement) = movement_validation.as_mut() {
                             if move_player.runtime_id == movement.runtime_id.0 {
-                                movement.record_server_position((move_player.position.x, move_player.position.y, move_player.position.z));
+                                movement.record_server_position((
+                                    move_player.position.x,
+                                    move_player.position.y,
+                                    move_player.position.z,
+                                ));
                             }
                         }
                     }
@@ -2838,11 +2853,19 @@ impl BedrockBotSession {
                             "[MOVEMENT_RX] packet=Respawn state={:?} runtime_id={:?} position={}",
                             respawn.state,
                             respawn.runtime_entity_id,
-                            format_position((respawn.position.x, respawn.position.y, respawn.position.z))
+                            format_position((
+                                respawn.position.x,
+                                respawn.position.y,
+                                respawn.position.z
+                            ))
                         );
                         if let Some(movement) = movement_validation.as_mut() {
                             if respawn.runtime_entity_id == movement.runtime_id.0 {
-                                movement.record_server_position((respawn.position.x, respawn.position.y, respawn.position.z));
+                                movement.record_server_position((
+                                    respawn.position.x,
+                                    respawn.position.y,
+                                    respawn.position.z,
+                                ));
                             }
                         }
                     }
@@ -2855,7 +2878,11 @@ impl BedrockBotSession {
                             correction.on_ground // prediction_type
                         );
                         if let Some(movement) = movement_validation.as_mut() {
-                            movement.record_correction((correction.position.x, correction.position.y, correction.position.z));
+                            movement.record_correction((
+                                correction.position.x,
+                                correction.position.y,
+                                correction.position.z,
+                            ));
                             self.diagnostics
                                 .log_event(
                                     Some(account_id),
@@ -3051,7 +3078,11 @@ impl BedrockBotSession {
                         eprintln!(
                             "[GAMEPLAY_RX] packet=LevelEvent event_id={} position={} data={}",
                             packet.event_id,
-                            format_position((packet.position.x, packet.position.y, packet.position.z)),
+                            format_position((
+                                packet.position.x,
+                                packet.position.y,
+                                packet.position.z
+                            )),
                             packet.data
                         );
                     }
@@ -3183,10 +3214,13 @@ impl BedrockBotSession {
                             "[BEDROCK_HANDLER] observed ResourcePacksInfo -> ResourcePackClientResponse(have_all_packs), ClientCacheStatus(false)"
                         );
                         conn.send(&[
-                            BedrockProto::ResourcePackClientResponse(ResourcePackClientResponsePacket {
-                                response_status: ResourcePackResponse::AllPacksDownloaded.as_u8(),
-                                resource_pack_ids: vec![],
-                            }),
+                            BedrockProto::ResourcePackClientResponse(
+                                ResourcePackClientResponsePacket {
+                                    response_status: ResourcePackResponse::AllPacksDownloaded
+                                        .as_u8(),
+                                    resource_pack_ids: vec![],
+                                },
+                            ),
                             BedrockProto::ClientCacheStatus(ClientCacheStatusPacket {
                                 support_client_cache: false,
                             }),
@@ -3198,10 +3232,12 @@ impl BedrockBotSession {
                             "[BEDROCK_HANDLER] observed ResourcePackStack -> ResourcePackClientResponse(completed)"
                         );
                         resource_stack_done = true;
-                        conn.send(&[BedrockProto::ResourcePackClientResponse(ResourcePackClientResponsePacket {
-                            response_status: ResourcePackResponse::Completed.as_u8(),
-                            resource_pack_ids: vec![],
-                        })])
+                        conn.send(&[BedrockProto::ResourcePackClientResponse(
+                            ResourcePackClientResponsePacket {
+                                response_status: ResourcePackResponse::Completed.as_u8(),
+                                resource_pack_ids: vec![],
+                            },
+                        )])
                         .await?;
                     }
                     ObservedPacket::StartGame(start_game) => {
@@ -4413,21 +4449,23 @@ impl BedrockBotSession {
                 frame.pitch,
                 format_position(frame.velocity)
             );
-            packets.push(BedrockProto::MovePlayer(
-                MovePlayerPacket {
-                    runtime_id: frame.runtime_id.0,
-                    position: Vector3f { x: frame.position.0, y: frame.position.1, z: frame.position.2 },
-                    pitch: frame.pitch,
-                    yaw: frame.yaw,
-                    head_yaw: frame.yaw,
-                    mode: 0,
-                    on_ground: true,
-                    riding_runtime_id: 0,
-                    teleport_cause: 0,
-                    teleport_item_id: 0,
-                    tick: frame.tick,
-                }
-            ));
+            packets.push(BedrockProto::MovePlayer(MovePlayerPacket {
+                runtime_id: frame.runtime_id.0,
+                position: Vector3f {
+                    x: frame.position.0,
+                    y: frame.position.1,
+                    z: frame.position.2,
+                },
+                pitch: frame.pitch,
+                yaw: frame.yaw,
+                head_yaw: frame.yaw,
+                mode: 0,
+                on_ground: true,
+                riding_runtime_id: 0,
+                teleport_cause: 0,
+                teleport_item_id: 0,
+                tick: frame.tick,
+            }));
         }
         eprintln!(
             "[MOVEMENT_TX] packet=PlayerAuthInputRaw frame={} tick={} elapsed={:.3} position={} rotation={:.3},{:.3} move_vector=0.000,0.000,1.000 analog_move_vector=0.000,1.000 raw_move_vector=0.000,1.000 velocity={} input_data={:#x}",
@@ -4553,25 +4591,23 @@ impl BedrockBotSession {
                 frame.pitch,
                 format_position(frame.velocity)
             );
-            conn.send(&[BedrockProto::MovePlayer(
-                MovePlayerPacket {
-                    runtime_id: frame.runtime_id.0,
-                    position: Vector3f {
-                        x: frame.position.0,
-                        y: frame.position.1,
-                        z: frame.position.2,
-                    },
-                    pitch: frame.pitch,
-                    yaw: frame.yaw,
-                    head_yaw: frame.yaw,
-                    mode: 0,
-                    on_ground: true,
-                    riding_runtime_id: 0,
-                    teleport_cause: 0,
-                    teleport_item_id: 0,
-                    tick: frame.tick,
-                }
-            )])
+            conn.send(&[BedrockProto::MovePlayer(MovePlayerPacket {
+                runtime_id: frame.runtime_id.0,
+                position: Vector3f {
+                    x: frame.position.0,
+                    y: frame.position.1,
+                    z: frame.position.2,
+                },
+                pitch: frame.pitch,
+                yaw: frame.yaw,
+                head_yaw: frame.yaw,
+                mode: 0,
+                on_ground: true,
+                riding_runtime_id: 0,
+                teleport_cause: 0,
+                teleport_item_id: 0,
+                tick: frame.tick,
+            })])
             .await?;
         }
         eprintln!(
@@ -4932,11 +4968,13 @@ impl BedrockBotSession {
     }
 
     async fn send_inventory_probe(&self, conn: &mut BedrockProtocolAdapter) -> EngineResult<()> {
-        conn.send(&[BedrockProto::InventoryTransaction(InventoryTransactionPacket {
-            transaction_type: 0,
-            actions: vec![],
-            transaction_data: vec![],
-        })])
+        conn.send(&[BedrockProto::InventoryTransaction(
+            InventoryTransactionPacket {
+                transaction_type: 0,
+                actions: vec![],
+                transaction_data: vec![],
+            },
+        )])
         .await
     }
 
