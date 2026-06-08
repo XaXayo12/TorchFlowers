@@ -87,7 +87,7 @@ Tokens and provisioning state are persisted by `torchflower-engine`; `torchflowe
 - Login packet generation, compression, encryption handshake, and encrypted batch decoding
 - Resource pack acknowledgement and client cache status
 - StartGame, player spawn, keepalive, chat, inventory observation, movement, and disconnect handling
-- DonutSMP-compatible NetworkStackLatency response encoding
+- NetworkStackLatency response encoding
 - Server-confirmed block breaking evidence through UpdateBlock observation
 - Guarded block placing after a normal placeable item is confirmed in inventory
 - Authenticated REST API with exact-origin CORS and safe diagnostics defaults

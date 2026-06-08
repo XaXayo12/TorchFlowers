@@ -8,10 +8,16 @@ It is designed for running many lightweight Minecraft Bedrock bot sessions in on
 
 ```bash
 cargo install --git https://github.com/Osamu-GWAD/TorchFlower \
-  --package torchflower-lite-bot \
+  torchflower-lite-bot \
   --branch main \
   --locked \
   --force
+```
+
+From a local checkout:
+
+```bash
+cargo install --path crates/torchflower-lite-bot --locked --force
 ```
 
 ## Quick Linux install
@@ -33,7 +39,7 @@ winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--wait
 Install the lite bot:
 
 ```powershell
-cargo install --git https://github.com/Osamu-GWAD/TorchFlower --package torchflower-lite-bot --branch main --locked --force
+cargo install --git https://github.com/Osamu-GWAD/TorchFlower torchflower-lite-bot --branch main --locked --force
 ```
 
 If the command is not found:
@@ -64,7 +70,12 @@ torchflower-lite-bot bench --bots 100 --duration 10m
 
 ## Protocol Version Override
 
-You can override the Bedrock protocol version used by the bot runner.
+You can override the Bedrock protocol version used by the bot runner. The priority order is:
+
+1. `[server] protocol_version = XXX`
+2. `TORCHFLOWER_BEDROCK_PROTOCOL_VERSION`
+3. `BEDROCK_PROTOCOL_VERSION`
+4. TorchFlower's default protocol constant
 
 ### Using environment variables
 
@@ -90,6 +101,29 @@ host = "127.0.0.1"
 port = 19132
 protocol_version = XXX
 ```
+
+For bounded probing, omit `protocol_version` and set a list:
+
+```toml
+[server]
+host = "127.0.0.1"
+port = 19132
+protocol_versions = [893, 898, 899]
+```
+
+The runner tries each configured version once for a NetworkSettings failure and then stops the probe.
+
+## NetworkSettings Diagnostics
+
+An early disconnect before `NetworkSettingsPacket` means the server rejected the client before login. Common causes are an unsupported protocol version, invalid RequestNetworkSettings encoding/framing, or a server-side rejection before authentication starts.
+
+Enable debug logs when investigating:
+
+```bash
+RUST_LOG=debug torchflower-lite-bot run --config ./bots.toml
+```
+
+The NetworkSettings logs include the requested protocol version, codec protocol version, payload length, and debug-only hex bytes.
 
 ## Low-RAM environment variables
 

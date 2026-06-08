@@ -10,7 +10,7 @@ use p384::{
 use serde::Deserialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
-    env,
+    env, fmt,
     sync::atomic::{AtomicUsize, Ordering},
 };
 use torchflower_protocol::{
@@ -30,6 +30,7 @@ pub struct BedrockProtocolAdapter {
     compression: Option<Compression>,
     encryption: Option<Encryption>,
     server_address: String,
+    protocol_options: BedrockProtocolOptions,
     version: ProtoVersion,
 }
 
@@ -160,12 +161,133 @@ pub struct ObservedItemEntity {
     pub item_bytes: Vec<u8>,
 }
 
-const PRISMARINE_DONUT_PROTOCOL_VERSION: i32 = 898;
-const NETWORK_STACK_LATENCY_STRATEGY: &str = "donut_scaled_microseconds";
+pub const DEFAULT_BEDROCK_PROTOCOL_VERSION: i32 = 898;
+pub const TORCHFLOWER_BEDROCK_PROTOCOL_VERSION_ENV: &str = "TORCHFLOWER_BEDROCK_PROTOCOL_VERSION";
+pub const LEGACY_BEDROCK_PROTOCOL_VERSION_ENV: &str = "BEDROCK_PROTOCOL_VERSION";
+
+const NETWORK_STACK_LATENCY_STRATEGY: &str = "scaled_microseconds";
 const NETWORK_STACK_LATENCY_MAGNITUDE: u64 = 1_000_000;
 const NETWORK_STACK_LATENCY_DEFAULT_LOG_LIMIT: usize = 8;
 static NETWORK_STACK_LATENCY_RX_LOGS: AtomicUsize = AtomicUsize::new(0);
 static NETWORK_STACK_LATENCY_TX_LOGS: AtomicUsize = AtomicUsize::new(0);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BedrockProtocolVersionSource {
+    Config,
+    TorchflowerEnv,
+    LegacyEnv,
+    Default,
+}
+
+impl fmt::Display for BedrockProtocolVersionSource {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Config => f.write_str("config"),
+            Self::TorchflowerEnv => f.write_str(TORCHFLOWER_BEDROCK_PROTOCOL_VERSION_ENV),
+            Self::LegacyEnv => f.write_str(LEGACY_BEDROCK_PROTOCOL_VERSION_ENV),
+            Self::Default => f.write_str("default"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BedrockProtocolOptions {
+    pub requested_protocol_version: i32,
+    pub codec_protocol_version: ProtoVersion,
+    pub source: BedrockProtocolVersionSource,
+}
+
+impl BedrockProtocolOptions {
+    pub fn from_config(protocol_version: i32) -> EngineResult<Self> {
+        Self::from_source(protocol_version, BedrockProtocolVersionSource::Config)
+    }
+
+    pub fn from_env_or_default() -> EngineResult<Self> {
+        Self::resolve(None)
+    }
+
+    pub fn resolve(config_protocol_version: Option<i32>) -> EngineResult<Self> {
+        if let Some(protocol_version) = config_protocol_version {
+            return Self::from_source(protocol_version, BedrockProtocolVersionSource::Config);
+        }
+
+        if let Ok(value) = env::var(TORCHFLOWER_BEDROCK_PROTOCOL_VERSION_ENV) {
+            return Self::from_source(
+                parse_protocol_version_env(TORCHFLOWER_BEDROCK_PROTOCOL_VERSION_ENV, &value)?,
+                BedrockProtocolVersionSource::TorchflowerEnv,
+            );
+        }
+
+        if let Ok(value) = env::var(LEGACY_BEDROCK_PROTOCOL_VERSION_ENV) {
+            return Self::from_source(
+                parse_protocol_version_env(LEGACY_BEDROCK_PROTOCOL_VERSION_ENV, &value)?,
+                BedrockProtocolVersionSource::LegacyEnv,
+            );
+        }
+
+        Self::from_source(
+            DEFAULT_BEDROCK_PROTOCOL_VERSION,
+            BedrockProtocolVersionSource::Default,
+        )
+    }
+
+    pub fn codec_protocol_version_number(&self) -> i32 {
+        self.codec_protocol_version.to_u32() as i32
+    }
+
+    pub fn codec_exact_match(&self) -> bool {
+        self.requested_protocol_version == self.codec_protocol_version_number()
+    }
+
+    fn from_source(
+        requested_protocol_version: i32,
+        source: BedrockProtocolVersionSource,
+    ) -> EngineResult<Self> {
+        validate_protocol_version(source, requested_protocol_version)?;
+        Ok(Self {
+            requested_protocol_version,
+            codec_protocol_version: codec_protocol_version_for(requested_protocol_version),
+            source,
+        })
+    }
+}
+
+fn parse_protocol_version_env(name: &str, value: &str) -> EngineResult<i32> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(EngineError::Bedrock(format!(
+            "{name} must be a positive integer, got an empty value"
+        )));
+    }
+
+    trimmed.parse::<i32>().map_err(|err| {
+        EngineError::Bedrock(format!(
+            "{name} must be a positive integer, got {trimmed:?}: {err}"
+        ))
+    })
+}
+
+fn validate_protocol_version(
+    source: BedrockProtocolVersionSource,
+    protocol_version: i32,
+) -> EngineResult<()> {
+    if protocol_version <= 0 {
+        return Err(EngineError::Bedrock(format!(
+            "Bedrock protocol version from {source} must be a positive integer, got {protocol_version}"
+        )));
+    }
+    Ok(())
+}
+
+fn codec_protocol_version_for(protocol_version: i32) -> ProtoVersion {
+    match protocol_version {
+        662 => ProtoVersion::V662,
+        766 => ProtoVersion::V766,
+        898 => ProtoVersion::V898,
+        975 => ProtoVersion::V975,
+        _ => ProtoVersion::V898,
+    }
+}
 
 fn env_flag(name: &str, default: bool) -> bool {
     env::var(name)
@@ -191,18 +313,28 @@ fn should_log_limited(counter: &AtomicUsize, limit: usize) -> bool {
 
 impl BedrockProtocolAdapter {
     pub async fn connect(host: &str, port: u16) -> EngineResult<Self> {
-        let version = login_proto_version();
+        Self::connect_with_options(host, port, BedrockProtocolOptions::from_env_or_default()?).await
+    }
+
+    pub async fn connect_with_options(
+        host: &str,
+        port: u16,
+        protocol_options: BedrockProtocolOptions,
+    ) -> EngineResult<Self> {
+        let version = protocol_options.codec_protocol_version;
         Ok(Self {
             transport: RaknetClientAdapter::connect(host, port, 11).await?,
             compression: None,
             encryption: None,
             server_address: login_server_address(host, port),
+            protocol_options,
             version,
         })
     }
 
     pub async fn request_network_settings(&mut self) -> EngineResult<()> {
-        let protocol_ver = login_protocol_version();
+        let protocol_ver = self.protocol_options.requested_protocol_version;
+        let codec_protocol_ver = self.protocol_options.codec_protocol_version_number();
         let parts: Vec<&str> = self.server_address.split(':').collect();
         let host = parts.first().copied().unwrap_or("");
         let port = parts.get(1).copied().unwrap_or("");
@@ -215,18 +347,28 @@ impl BedrockProtocolAdapter {
             .map_err(|err| EngineError::Bedrock(format!("encode RequestNetworkSettings: {err}")))?;
 
         tracing::warn!(
-            "[NETWORK_SETTINGS_TX] protocol_version={} host={} port={} payload_len={}",
+            "[NETWORK_SETTINGS_TX] protocol_version={} codec_protocol_version={} host={} port={} payload_len={}",
             protocol_ver,
+            codec_protocol_ver,
             host,
             port,
             payload.len()
         );
+        if !self.protocol_options.codec_exact_match() {
+            tracing::warn!(
+                "[BEDROCK_PROTOCOL] requested_protocol_version={} codec_protocol_version={} codec_exact_match=false source={}",
+                protocol_ver,
+                codec_protocol_ver,
+                self.protocol_options.source
+            );
+        }
+        tracing::debug!("[NETWORK_SETTINGS_TX] bytes={}", hex_dump(&payload));
 
         self.transport.send_game_packet(&payload).await?;
         let response = self.transport.recv_game_packet().await?;
         let packets = codec::decode_packets(response, None, None, version)
             .map_err(|err| EngineError::Bedrock(format!("decode NetworkSettings: {err}")))?;
-        println!("[DEBUG] Received packets: {:?}", packets);
+        tracing::debug!("[NETWORK_SETTINGS_RX] packets={:?}", packets);
 
         let mut early_disconnect = None;
         for packet in &packets {
@@ -241,7 +383,13 @@ impl BedrockProtocolAdapter {
 
         for packet in packets {
             if let BedrockProto::NetworkSettings(settings) = packet {
-                println!("Parsed NetworkSettingsPacket: {:?}", settings);
+                tracing::warn!(
+                    "[NETWORK_SETTINGS_RX] success=true compression_algorithm={} compression_threshold={} protocol_version={} codec_protocol_version={}",
+                    settings.compression_algorithm,
+                    settings.compression_threshold,
+                    protocol_ver,
+                    codec_protocol_ver
+                );
                 self.compression = Some(match settings.compression_algorithm {
                     0 => Compression::Zlib {
                         threshold: settings.compression_threshold,
@@ -259,17 +407,21 @@ impl BedrockProtocolAdapter {
         if let Some(p) = early_disconnect {
             return Err(EngineError::Bedrock(format!(
                 "server did not return NetworkSettingsPacket; received early Disconnect before NetworkSettings. \
-                 protocol_version={}. Reason: {}. HideReason: {}. Message: {:?}. \
-                 This usually means unsupported protocol version, invalid network settings request, or server rejected the client before login.",
-                protocol_ver, p.reason, p.hide_reason, p.message
+                 protocol_version={}. codec_protocol_version={}. reason={}. hide_reason={}. message={:?}. \
+                 This usually means unsupported protocol version, invalid RequestNetworkSettings encoding/framing, or server rejected the client before login.",
+                protocol_ver, codec_protocol_ver, p.reason, p.hide_reason, p.message
             )));
         }
 
         Err(EngineError::Bedrock(format!(
-            "server did not return NetworkSettingsPacket; protocol_version={}. \
-             This usually means unsupported protocol version, invalid network settings request, or server rejected the client before login.",
-            protocol_ver
+            "server did not return NetworkSettingsPacket; protocol_version={}. codec_protocol_version={}. \
+             This usually means unsupported protocol version, invalid RequestNetworkSettings encoding/framing, or server rejected the client before login.",
+            protocol_ver, codec_protocol_ver
         )))
+    }
+
+    pub fn protocol_options(&self) -> BedrockProtocolOptions {
+        self.protocol_options
     }
 
     pub async fn send_login(&mut self, session: &ProvisionedBedrockSession) -> EngineResult<()> {
@@ -297,8 +449,11 @@ impl BedrockProtocolAdapter {
             "[LOGIN] chain_fingerprint: {}",
             MinecraftAuth::bedrock_chain_fingerprint(&session.chain, login_token)?
         );
-        let payload =
-            Self::encode_login_packet_batch(&connection_request, self.compression.as_ref())?;
+        let payload = Self::encode_login_packet_batch_with_protocol(
+            &connection_request,
+            self.compression.as_ref(),
+            self.protocol_options.requested_protocol_version,
+        )?;
         self.transport.send_game_packet(&payload).await
     }
 
@@ -309,9 +464,24 @@ impl BedrockProtocolAdapter {
         connection_request: &[u8],
         compression: Option<&Compression>,
     ) -> EngineResult<Vec<u8>> {
+        let protocol_options = BedrockProtocolOptions::from_env_or_default()?;
+        Self::encode_login_packet_batch_with_protocol(
+            connection_request,
+            compression,
+            protocol_options.requested_protocol_version,
+        )
+    }
+
+    pub fn encode_login_packet_batch_with_protocol(
+        connection_request: &[u8],
+        compression: Option<&Compression>,
+        protocol_version: i32,
+    ) -> EngineResult<Vec<u8>> {
+        validate_protocol_version(BedrockProtocolVersionSource::Config, protocol_version)?;
+
         let mut packet = Vec::with_capacity(8 + connection_request.len());
         write_unsigned_varint_u32(1, &mut packet);
-        packet.extend_from_slice(&login_protocol_version().to_be_bytes());
+        packet.extend_from_slice(&protocol_version.to_be_bytes());
         write_unsigned_varint_u32(connection_request.len() as u32, &mut packet);
         packet.extend_from_slice(connection_request);
 
@@ -3302,30 +3472,6 @@ fn login_token_for_session(session: &ProvisionedBedrockSession) -> &str {
     &session.bedrock_login_token
 }
 
-fn login_protocol_version() -> i32 {
-    if let Ok(value) = std::env::var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION") {
-        if let Ok(parsed) = value.trim().parse::<i32>() {
-            if parsed > 0 {
-                return parsed;
-            }
-        }
-    }
-    std::env::var("BEDROCK_PROTOCOL_VERSION")
-        .ok()
-        .and_then(|value| value.trim().parse::<i32>().ok())
-        .unwrap_or(PRISMARINE_DONUT_PROTOCOL_VERSION)
-}
-
-fn login_proto_version() -> ProtoVersion {
-    match login_protocol_version() {
-        662 => ProtoVersion::V662,
-        766 => ProtoVersion::V766,
-        898 => ProtoVersion::V898,
-        975 => ProtoVersion::V975,
-        _ => ProtoVersion::V898,
-    }
-}
-
 fn override_connection_request() -> EngineResult<Option<Vec<u8>>> {
     let value = if let Ok(path) = std::env::var("BEDROCK_LOGIN_CONNECTION_REQUEST_B64_FILE") {
         let path = path.trim();
@@ -3382,6 +3528,66 @@ fn read_container_open_observed(packet: &[u8], payload_offset: usize) -> Option<
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    #[test]
+    fn request_network_settings_framed_encoding_is_exact() {
+        let packet = BedrockProto::RequestNetworkSettings(RequestNetworkSettingsPacket {
+            protocol_version: 898,
+        });
+        let payload = codec::encode_packets(&[packet], None, None, ProtoVersion::V898).unwrap();
+
+        assert_eq!(payload.len(), 7);
+        assert_eq!(payload, vec![0x06, 0xc1, 0x01, 0x82, 0x03, 0x00, 0x00]);
+    }
+
+    #[test]
+    fn protocol_options_resolve_priority_and_codec() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        env::remove_var(TORCHFLOWER_BEDROCK_PROTOCOL_VERSION_ENV);
+        env::remove_var(LEGACY_BEDROCK_PROTOCOL_VERSION_ENV);
+
+        let resolved = BedrockProtocolOptions::resolve(None).unwrap();
+        assert_eq!(
+            resolved.requested_protocol_version,
+            DEFAULT_BEDROCK_PROTOCOL_VERSION
+        );
+        assert_eq!(resolved.codec_protocol_version, ProtoVersion::V898);
+        assert_eq!(resolved.source, BedrockProtocolVersionSource::Default);
+        assert!(resolved.codec_exact_match());
+
+        env::set_var(LEGACY_BEDROCK_PROTOCOL_VERSION_ENV, "975");
+        let resolved = BedrockProtocolOptions::resolve(None).unwrap();
+        assert_eq!(resolved.requested_protocol_version, 975);
+        assert_eq!(resolved.codec_protocol_version, ProtoVersion::V975);
+        assert_eq!(resolved.source, BedrockProtocolVersionSource::LegacyEnv);
+
+        env::set_var(TORCHFLOWER_BEDROCK_PROTOCOL_VERSION_ENV, "766");
+        let resolved = BedrockProtocolOptions::resolve(None).unwrap();
+        assert_eq!(resolved.requested_protocol_version, 766);
+        assert_eq!(resolved.codec_protocol_version, ProtoVersion::V766);
+        assert_eq!(
+            resolved.source,
+            BedrockProtocolVersionSource::TorchflowerEnv
+        );
+
+        let resolved = BedrockProtocolOptions::resolve(Some(662)).unwrap();
+        assert_eq!(resolved.requested_protocol_version, 662);
+        assert_eq!(resolved.codec_protocol_version, ProtoVersion::V662);
+        assert_eq!(resolved.source, BedrockProtocolVersionSource::Config);
+
+        let resolved = BedrockProtocolOptions::from_config(899).unwrap();
+        assert_eq!(resolved.requested_protocol_version, 899);
+        assert_eq!(resolved.codec_protocol_version, ProtoVersion::V898);
+        assert!(!resolved.codec_exact_match());
+
+        env::set_var(TORCHFLOWER_BEDROCK_PROTOCOL_VERSION_ENV, "0");
+        assert!(BedrockProtocolOptions::resolve(None).is_err());
+
+        env::remove_var(TORCHFLOWER_BEDROCK_PROTOCOL_VERSION_ENV);
+        env::remove_var(LEGACY_BEDROCK_PROTOCOL_VERSION_ENV);
+    }
 
     #[test]
     fn packet_summary_reads_bedrock_batch_packets() {

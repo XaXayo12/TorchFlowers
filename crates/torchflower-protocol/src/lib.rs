@@ -1479,4 +1479,19 @@ mod tests {
             Packet::decode(original.id(), &mut bytes.clone(), ProtocolVersion::V898).unwrap();
         assert_eq!(original, decoded);
     }
+
+    #[test]
+    fn request_network_settings_body_encoding_is_little_endian_i32() {
+        let packet = Packet::RequestNetworkSettings(RequestNetworkSettingsPacket {
+            protocol_version: 898,
+        });
+        let bytes = packet.encode(ProtocolVersion::V898).unwrap();
+        assert_eq!(&bytes[..], &[0x82, 0x03, 0x00, 0x00]);
+
+        let packet = Packet::RequestNetworkSettings(RequestNetworkSettingsPacket {
+            protocol_version: 975,
+        });
+        let bytes = packet.encode(ProtocolVersion::V975).unwrap();
+        assert_eq!(&bytes[..], &[0xcf, 0x03, 0x00, 0x00]);
+    }
 }

@@ -32,8 +32,8 @@ use uuid::Uuid;
 use crate::{
     auth::ProvisionedBedrockSession,
     bedrock::protocol_adapter::{
-        BedrockProtocolAdapter, ObservedBlockSample, ObservedInventoryItem, ObservedItemEntity,
-        ObservedPacket,
+        BedrockProtocolAdapter, BedrockProtocolOptions, ObservedBlockSample, ObservedInventoryItem,
+        ObservedItemEntity, ObservedPacket,
     },
     db::Database,
     diagnostics::Diagnostics,
@@ -2327,13 +2327,15 @@ impl BedrockBotSession {
         host: &str,
         port: u16,
         session: &ProvisionedBedrockSession,
+        protocol_options: BedrockProtocolOptions,
         mut script: S,
         required_duration: Duration,
     ) -> EngineResult<()>
     where
         S: InstantScript,
     {
-        let mut conn = BedrockProtocolAdapter::connect(host, port).await?;
+        let mut conn =
+            BedrockProtocolAdapter::connect_with_options(host, port, protocol_options).await?;
         self.diagnostics
             .log_event(
                 Some(account_id),
@@ -2941,6 +2943,7 @@ impl BedrockBotSession {
         )
         .await?;
         status.keepalive = true;
+        let protocol_options = conn.protocol_options();
         self.diagnostics
             .log_event(
                 Some(account_id),
@@ -2949,7 +2952,10 @@ impl BedrockBotSession {
                 "bedrock",
                 Some("network_settings"),
                 "Bedrock network settings negotiated",
-                json!({ "protocol_version": 975 }),
+                json!({
+                    "protocol_version": protocol_options.requested_protocol_version,
+                    "codec_protocol_version": protocol_options.codec_protocol_version_number()
+                }),
             )
             .await?;
         timeout_step(

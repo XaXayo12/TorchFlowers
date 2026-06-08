@@ -13,7 +13,7 @@ use tracing::{info, warn};
 use torchflower_engine::{
     auth::ProvisionedBedrockSession,
     bedrock::{
-        protocol_adapter::{BedrockProtocolAdapter, ObservedInventoryItem},
+        protocol_adapter::{BedrockProtocolAdapter, BedrockProtocolOptions, ObservedInventoryItem},
         session::{
             create_offline_session, BedrockBotSession, InstantScript, InstantScriptEvent,
             MenuClickMethod, MenuClickTarget,
@@ -66,6 +66,7 @@ struct ServerConfig {
     host: String,
     port: u16,
     protocol_version: Option<i32>,
+    protocol_versions: Option<Vec<i32>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -80,6 +81,7 @@ struct BotConfig {
     username: Option<String>,
     account_id: Option<String>,
     mode: Option<String>,
+    reset_on_spawn: Option<bool>,
     script: Option<Vec<ScriptStep>>,
 }
 
@@ -104,6 +106,17 @@ impl LiteConfig {
         if let Some(version) = self.server.protocol_version {
             if version <= 0 {
                 bail!("server.protocol_version must be a positive integer");
+            }
+        }
+
+        if let Some(versions) = &self.server.protocol_versions {
+            if versions.is_empty() {
+                bail!("server.protocol_versions cannot be empty");
+            }
+            for version in versions {
+                if *version <= 0 {
+                    bail!("server.protocol_versions entries must be positive integers");
+                }
             }
         }
 
@@ -218,27 +231,17 @@ async fn run_config(path: PathBuf) -> Result<()> {
         config.server.host, config.server.port
     );
 
-    let resolved_version = if let Some(version) = config.server.protocol_version {
-        version
-    } else if let Ok(val) = std::env::var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION") {
-        let parsed = val
-            .trim()
-            .parse::<i32>()
-            .context("failed to parse TORCHFLOWER_BEDROCK_PROTOCOL_VERSION as i32")?;
-        if parsed <= 0 {
-            bail!("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION must be a positive integer");
-        }
-        parsed
-    } else {
-        // default fallback in TorchFlower
-        898
-    };
-
-    warn!("Selected Bedrock protocol version: {}", resolved_version);
-    std::env::set_var(
-        "TORCHFLOWER_BEDROCK_PROTOCOL_VERSION",
-        resolved_version.to_string(),
-    );
+    let protocol_attempts = resolve_protocol_attempts(&config.server)?;
+    for (attempt_index, protocol_options) in protocol_attempts.iter().enumerate() {
+        warn!(
+            "selected Bedrock protocol attempt #{attempt}: protocol_version={requested} codec_protocol_version={codec} source={source} codec_exact_match={exact}",
+            attempt = attempt_index + 1,
+            requested = protocol_options.requested_protocol_version,
+            codec = protocol_options.codec_protocol_version_number(),
+            source = protocol_options.source,
+            exact = protocol_options.codec_exact_match()
+        );
+    }
 
     let duration_secs = config.runtime.duration_secs.unwrap_or(0);
     let reconnect = config.runtime.reconnect.unwrap_or(true);
@@ -247,8 +250,17 @@ async fn run_config(path: PathBuf) -> Result<()> {
 
     for (index, bot) in config.bots.into_iter().enumerate() {
         let server = config.server.clone();
+        let protocol_attempts = protocol_attempts.clone();
         handles.push(tokio::spawn(async move {
-            run_single_bot(index, server, bot, duration_secs, reconnect).await
+            run_single_bot(
+                index,
+                server,
+                protocol_attempts,
+                bot,
+                duration_secs,
+                reconnect,
+            )
+            .await
         }));
     }
 
@@ -259,9 +271,35 @@ async fn run_config(path: PathBuf) -> Result<()> {
     Ok(())
 }
 
+fn resolve_protocol_attempts(server: &ServerConfig) -> Result<Vec<BedrockProtocolOptions>> {
+    if let Some(version) = server.protocol_version {
+        return Ok(vec![
+            BedrockProtocolOptions::from_config(version).map_err(|err| anyhow::anyhow!(err))?
+        ]);
+    }
+
+    if let Some(versions) = &server.protocol_versions {
+        return versions
+            .iter()
+            .copied()
+            .map(|version| BedrockProtocolOptions::from_config(version).map_err(Into::into))
+            .collect();
+    }
+
+    Ok(vec![
+        BedrockProtocolOptions::from_env_or_default().map_err(|err| anyhow::anyhow!(err))?
+    ])
+}
+
+fn is_network_settings_failure(error: &dyn std::fmt::Display) -> bool {
+    let message = error.to_string();
+    message.contains("NetworkSettingsPacket") || message.contains("NetworkSettings")
+}
+
 struct ScriptedBot {
     script: Vec<ScriptStep>,
     current_step_index: usize,
+    reset_on_spawn: bool,
     player_entity_id: i64,
     player_runtime_id: u64,
     player_position: (f32, f32, f32),
@@ -278,10 +316,11 @@ fn normalize_trigger(t: &str) -> String {
 }
 
 impl ScriptedBot {
-    fn new(script: Vec<ScriptStep>) -> Self {
+    fn new(script: Vec<ScriptStep>, reset_on_spawn: bool) -> Self {
         Self {
             script,
             current_step_index: 0,
+            reset_on_spawn,
             player_entity_id: 0,
             player_runtime_id: 0,
             player_position: (0.0, 0.0, 0.0),
@@ -396,8 +435,9 @@ impl InstantScript for ScriptedBot {
                     self.player_entity_id = entity_id;
                     self.player_position = position;
 
-                    // Reset step index to restart the sequence from the beginning on spawn
-                    self.current_step_index = 0;
+                    if self.reset_on_spawn {
+                        self.current_step_index = 0;
+                    }
 
                     if self.current_step_index < self.script.len() {
                         let step = &self.script[self.current_step_index];
@@ -454,6 +494,7 @@ impl InstantScript for ScriptedBot {
 async fn run_single_bot(
     index: usize,
     server: ServerConfig,
+    protocol_attempts: Vec<BedrockProtocolOptions>,
     bot: BotConfig,
     duration_secs: u64,
     reconnect: bool,
@@ -474,59 +515,98 @@ async fn run_single_bot(
     );
 
     let script_steps = bot.script.clone().unwrap_or_default();
+    let reset_on_spawn = bot.reset_on_spawn.unwrap_or(true);
 
-    loop {
-        warn!("bot {name} connecting to {}:{}", server.host, server.port);
+    'reconnect_loop: loop {
+        let mut exhausted_protocol_probe = false;
 
-        let session = match create_offline_session(&name) {
-            Ok(s) => s,
-            Err(e) => {
-                warn!("failed to create offline session for {name}: {e:?}");
-                if !reconnect {
-                    break;
+        for (attempt_index, protocol_options) in protocol_attempts.iter().copied().enumerate() {
+            warn!(
+                "bot {name} connecting to {host}:{port} with protocol_version={protocol} codec_protocol_version={codec} attempt={attempt}/{total}",
+                host = server.host,
+                port = server.port,
+                protocol = protocol_options.requested_protocol_version,
+                codec = protocol_options.codec_protocol_version_number(),
+                attempt = attempt_index + 1,
+                total = protocol_attempts.len()
+            );
+
+            let session = match create_offline_session(&name) {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!("failed to create offline session for {name}: {e:?}");
+                    if !reconnect {
+                        break 'reconnect_loop;
+                    }
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    continue 'reconnect_loop;
                 }
-                tokio::time::sleep(Duration::from_secs(5)).await;
-                continue;
-            }
-        };
+            };
 
-        let engine_db = match torchflower_engine::db::Database::connect("").await {
-            Ok(db) => db,
-            Err(e) => {
-                warn!("failed to connect dummy database: {e:?}");
-                if !reconnect {
-                    break;
+            let engine_db = match torchflower_engine::db::Database::connect("").await {
+                Ok(db) => db,
+                Err(e) => {
+                    warn!("failed to connect dummy database: {e:?}");
+                    if !reconnect {
+                        break 'reconnect_loop;
+                    }
+                    tokio::time::sleep(Duration::from_secs(5)).await;
+                    continue 'reconnect_loop;
                 }
-                tokio::time::sleep(Duration::from_secs(5)).await;
-                continue;
+            };
+
+            let bot_session = BedrockBotSession::new(engine_db);
+            let script = ScriptedBot::new(script_steps.clone(), reset_on_spawn);
+
+            let run_duration = if duration_secs == 0 {
+                Duration::from_secs(3600 * 24 * 365) // 1 year
+            } else {
+                Duration::from_secs(duration_secs)
+            };
+
+            let run_res = bot_session
+                .run_instant_script(
+                    &name,
+                    None,
+                    &server.host,
+                    server.port,
+                    &session,
+                    protocol_options,
+                    script,
+                    run_duration,
+                )
+                .await;
+
+            if let Err(e) = run_res {
+                warn!(
+                    "bot {name} connection error with protocol_version={protocol} codec_protocol_version={codec}: {e:?}",
+                    protocol = protocol_options.requested_protocol_version,
+                    codec = protocol_options.codec_protocol_version_number()
+                );
+
+                if protocol_attempts.len() > 1 && is_network_settings_failure(&e) {
+                    if attempt_index + 1 < protocol_attempts.len() {
+                        warn!("bot {name} trying next configured protocol version after NetworkSettings failure");
+                        continue;
+                    }
+                    exhausted_protocol_probe = true;
+                }
+            } else {
+                warn!(
+                    "bot {name} session completed with protocol_version={protocol} codec_protocol_version={codec}",
+                    protocol = protocol_options.requested_protocol_version,
+                    codec = protocol_options.codec_protocol_version_number()
+                );
             }
-        };
 
-        let bot_session = BedrockBotSession::new(engine_db);
-        let script = ScriptedBot::new(script_steps.clone());
+            break;
+        }
 
-        let run_duration = if duration_secs == 0 {
-            Duration::from_secs(3600 * 24 * 365) // 1 year
-        } else {
-            Duration::from_secs(duration_secs)
-        };
-
-        let run_res = bot_session
-            .run_instant_script(
-                &name,
-                None,
-                &server.host,
-                server.port,
-                &session,
-                script,
-                run_duration,
-            )
-            .await;
-
-        if let Err(e) = run_res {
-            warn!("bot {name} connection error: {e:?}");
-        } else {
-            warn!("bot {name} session completed");
+        if exhausted_protocol_probe {
+            warn!(
+                "bot {name} exhausted configured protocol_versions after NetworkSettings failures"
+            );
+            break;
         }
 
         if !reconnect || duration_secs > 0 {
@@ -615,6 +695,11 @@ fn default_config_text() -> &'static str {
     r#"[server]
 host = "127.0.0.1"
 port = 19132
+# Optional: pin a Bedrock protocol version for this server.
+# This takes priority over TORCHFLOWER_BEDROCK_PROTOCOL_VERSION and BEDROCK_PROTOCOL_VERSION.
+# protocol_version = 898
+# Optional: probe a bounded list once, in order, when NetworkSettings fails.
+# protocol_versions = [893, 898, 899]
 
 [runtime]
 log_level = "warn"
@@ -624,6 +709,8 @@ reconnect = true
 [[bots]]
 username = "Bot_1"
 mode = "afk"
+# Scripted bots reset to the first script step on every Spawn by default.
+# Set reset_on_spawn = false when a generic script should continue after respawn.
 
 # For private scripted bots, create your own bots.toml outside the repo.
 # Do not commit server-specific scripts, private commands, usernames, targets,
@@ -634,6 +721,8 @@ mode = "afk"
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    static ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn test_lite_config_parsing_and_validation() {
@@ -649,10 +738,12 @@ mod tests {
             [[bots]]
             username = "Bot_Test"
             mode = "afk"
+            reset_on_spawn = false
         "#;
 
         let config: LiteConfig = toml::from_str(toml_text).unwrap();
         assert_eq!(config.server.protocol_version, Some(766));
+        assert_eq!(config.bots[0].reset_on_spawn, Some(false));
         assert!(config.validate().is_ok());
 
         let invalid_toml_text = r#"
@@ -672,11 +763,30 @@ mod tests {
         let config_invalid: LiteConfig = toml::from_str(invalid_toml_text).unwrap();
         assert_eq!(config_invalid.server.protocol_version, Some(-10));
         assert!(config_invalid.validate().is_err());
+
+        let invalid_list_toml_text = r#"
+            [server]
+            host = "127.0.0.1"
+            port = 19132
+            protocol_versions = [893, 0]
+
+            [runtime]
+            log_level = "info"
+
+            [[bots]]
+            username = "Bot_Test"
+            mode = "afk"
+        "#;
+
+        let config_invalid: LiteConfig = toml::from_str(invalid_list_toml_text).unwrap();
+        assert!(config_invalid.validate().is_err());
     }
 
     #[test]
     fn test_protocol_override_resolution() {
+        let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION");
+        std::env::remove_var("BEDROCK_PROTOCOL_VERSION");
 
         // 1. Fallback default
         let config = LiteConfig {
@@ -684,6 +794,7 @@ mod tests {
                 host: "127.0.0.1".to_string(),
                 port: 19132,
                 protocol_version: None,
+                protocol_versions: None,
             },
             runtime: RuntimeConfig {
                 log_level: None,
@@ -692,25 +803,14 @@ mod tests {
             },
             bots: vec![],
         };
-        let resolved = if let Some(version) = config.server.protocol_version {
-            version
-        } else if let Ok(val) = std::env::var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION") {
-            val.trim().parse::<i32>().unwrap()
-        } else {
-            898
-        };
-        assert_eq!(resolved, 898);
+        let resolved = resolve_protocol_attempts(&config.server).unwrap();
+        assert_eq!(resolved[0].requested_protocol_version, 898);
 
         // 2. Env variable takes precedence over default
+        std::env::set_var("BEDROCK_PROTOCOL_VERSION", "662");
         std::env::set_var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION", "975");
-        let resolved = if let Some(version) = config.server.protocol_version {
-            version
-        } else if let Ok(val) = std::env::var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION") {
-            val.trim().parse::<i32>().unwrap()
-        } else {
-            898
-        };
-        assert_eq!(resolved, 975);
+        let resolved = resolve_protocol_attempts(&config.server).unwrap();
+        assert_eq!(resolved[0].requested_protocol_version, 975);
 
         // 3. Config takes precedence over env variable
         let config_with_ver = LiteConfig {
@@ -718,6 +818,7 @@ mod tests {
                 host: "127.0.0.1".to_string(),
                 port: 19132,
                 protocol_version: Some(766),
+                protocol_versions: Some(vec![893, 898]),
             },
             runtime: RuntimeConfig {
                 log_level: None,
@@ -726,15 +827,34 @@ mod tests {
             },
             bots: vec![],
         };
-        let resolved = if let Some(version) = config_with_ver.server.protocol_version {
-            version
-        } else if let Ok(val) = std::env::var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION") {
-            val.trim().parse::<i32>().unwrap()
-        } else {
-            898
+        let resolved = resolve_protocol_attempts(&config_with_ver.server).unwrap();
+        assert_eq!(resolved[0].requested_protocol_version, 766);
+        assert_eq!(resolved.len(), 1);
+
+        let config_with_versions = LiteConfig {
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 19132,
+                protocol_version: None,
+                protocol_versions: Some(vec![893, 898]),
+            },
+            runtime: RuntimeConfig {
+                log_level: None,
+                duration_secs: None,
+                reconnect: None,
+            },
+            bots: vec![],
         };
-        assert_eq!(resolved, 766);
+        let resolved = resolve_protocol_attempts(&config_with_versions.server).unwrap();
+        assert_eq!(
+            resolved
+                .iter()
+                .map(|option| option.requested_protocol_version)
+                .collect::<Vec<_>>(),
+            vec![893, 898]
+        );
 
         std::env::remove_var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION");
+        std::env::remove_var("BEDROCK_PROTOCOL_VERSION");
     }
 }

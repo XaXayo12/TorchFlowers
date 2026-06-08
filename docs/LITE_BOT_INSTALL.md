@@ -12,7 +12,7 @@ curl https://sh.rustup.rs -sSf | sh -s -- -y
 source "$HOME/.cargo/env"
 
 cargo install --git https://github.com/Osamu-GWAD/TorchFlower \
-  --package torchflower-lite-bot \
+  torchflower-lite-bot \
   --branch main \
   --locked \
   --force
@@ -43,7 +43,14 @@ winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--wait
 Restart PowerShell, then run:
 
 ```powershell
-cargo install --git https://github.com/Osamu-GWAD/TorchFlower --package torchflower-lite-bot --branch main --locked --force
+cargo install --git https://github.com/Osamu-GWAD/TorchFlower torchflower-lite-bot --branch main --locked --force
+```
+
+From a local checkout:
+
+```powershell
+cd D:\Workspace\RustRock
+cargo install --path crates\torchflower-lite-bot --locked --force
 ```
 
 If Windows cannot find the command:
@@ -92,7 +99,12 @@ mode = "afk"
 
 ## Protocol Version Override
 
-You can override the Bedrock protocol version used by the bot runner.
+You can override the Bedrock protocol version used by the bot runner. The fallback priority is:
+
+1. `[server] protocol_version = XXX`
+2. `TORCHFLOWER_BEDROCK_PROTOCOL_VERSION`
+3. `BEDROCK_PROTOCOL_VERSION`
+4. TorchFlower's default protocol constant
 
 ### Using environment variables
 
@@ -117,6 +129,27 @@ You can set the protocol version directly in `bots.toml` under the `[server]` se
 host = "127.0.0.1"
 port = 19132
 protocol_version = XXX
+```
+
+To test a bounded list for NetworkSettings negotiation, omit `protocol_version` and use:
+
+```toml
+[server]
+host = "127.0.0.1"
+port = 19132
+protocol_versions = [893, 898, 899]
+```
+
+The runner tries each configured version once for an early NetworkSettings failure and then stops the probe.
+
+## NetworkSettings diagnostics
+
+An early disconnect before `NetworkSettingsPacket` means the server rejected the client before login/auth starts. Common causes are unsupported protocol version, invalid RequestNetworkSettings encoding/framing, or server-side rejection before login.
+
+Use debug logs to inspect the requested protocol, codec protocol, payload length, and debug-only request bytes:
+
+```bash
+RUST_LOG=debug torchflower-lite-bot run --config ./bots.toml
 ```
 
 ## Low-resource settings
