@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT id, microsoft_status, entitlement_status, last_error FROM accounts",
+  "describe": {
+    "columns": [
+      {
+        "name": "id",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "microsoft_status",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "entitlement_status",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "last_error",
+        "ordinal": 3,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "70010ae118c71848a37a41c5cc29d28f1bd1abb1bccba3fbd9f7939e6582c93b"
+}

@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT level, category, step, message, metadata_json, created_at FROM logs ORDER BY created_at DESC LIMIT 30",
+  "describe": {
+    "columns": [
+      {
+        "name": "level",
+        "ordinal": 0,
+        "type_info": "Text"
+      },
+      {
+        "name": "category",
+        "ordinal": 1,
+        "type_info": "Text"
+      },
+      {
+        "name": "step",
+        "ordinal": 2,
+        "type_info": "Text"
+      },
+      {
+        "name": "message",
+        "ordinal": 3,
+        "type_info": "Text"
+      },
+      {
+        "name": "metadata_json",
+        "ordinal": 4,
+        "type_info": "Text"
+      },
+      {
+        "name": "created_at",
+        "ordinal": 5,
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "b855c51986ee307bb21f29907005fb1a98441b505b9a1fad151556ff8c598510"
+}
