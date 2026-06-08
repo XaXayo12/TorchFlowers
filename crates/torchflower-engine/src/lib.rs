@@ -10,10 +10,12 @@
     clippy::too_many_arguments,
     clippy::vec_init_then_push
 )]
+#[cfg(feature = "full-engine")]
 pub mod api;
 #[path = "bedrock/auth/mod.rs"]
 pub mod auth;
 pub mod bedrock;
+#[cfg(feature = "full-engine")]
 pub mod bot;
 pub mod config;
 pub mod core;
@@ -23,5 +25,6 @@ pub mod error;
 pub mod models;
 pub mod native_client;
 pub mod pool;
+#[cfg(feature = "full-engine")]
 pub mod validation;
 pub use crate::core::{BotBuilder, BotEvent, BotSession, Event};

@@ -1,12 +1,16 @@
+#[cfg(feature = "full-engine")]
 use axum::{http::StatusCode, response::IntoResponse, Json};
+#[cfg(feature = "full-engine")]
 use serde_json::json;
 
 #[derive(thiserror::Error, Debug)]
 pub enum EngineError {
     #[error("missing required configuration: {0}")]
     MissingConfig(&'static str),
+    #[cfg(feature = "full-engine")]
     #[error("database error: {0}")]
     Database(#[from] sqlx::Error),
+    #[cfg(feature = "full-engine")]
     #[error("http error: {0}")]
     Http(#[from] reqwest::Error),
     #[error("json error: {0}")]
@@ -25,6 +29,7 @@ pub enum EngineError {
     InvalidRequest(String),
 }
 
+#[cfg(feature = "full-engine")]
 impl IntoResponse for EngineError {
     fn into_response(self) -> axum::response::Response {
         let status = self.status_code();
@@ -39,6 +44,7 @@ impl IntoResponse for EngineError {
     }
 }
 
+#[cfg(feature = "full-engine")]
 impl EngineError {
     pub fn status_code(&self) -> StatusCode {
         match self {

@@ -30,6 +30,7 @@ members = [
     "crates/torchflower-api",
     "crates/torchflower-level",
     "crates/torchflower-addon",
+    "crates/torchflower-lite-bot",
 ]
 
 [workspace.package]

@@ -1,18 +1,24 @@
+#[cfg(feature = "full-engine")]
 use reqwest::{header::HeaderMap, Method, StatusCode};
+#[cfg(feature = "full-engine")]
 use serde::de::DeserializeOwned;
+#[cfg(feature = "full-engine")]
 use serde_json::{json, Value};
 
+#[cfg(feature = "full-engine")]
 use crate::{
     db::{Database, NewLogEntry},
     error::{EngineError, EngineResult},
 };
 
+#[cfg(feature = "full-engine")]
 #[derive(Clone)]
 pub struct Diagnostics {
     db: Database,
     capture_auth_bodies: bool,
 }
 
+#[cfg(feature = "full-engine")]
 impl Diagnostics {
     pub fn new(db: Database) -> Self {
         Self {
@@ -246,6 +252,7 @@ impl Diagnostics {
     }
 }
 
+#[cfg(feature = "full-engine")]
 fn request_id(headers: &HeaderMap) -> Option<String> {
     ["x-request-id", "request-id", "x-correlation-id", "ms-cv"]
         .iter()
@@ -257,6 +264,7 @@ fn request_id(headers: &HeaderMap) -> Option<String> {
         })
 }
 
+#[cfg(feature = "full-engine")]
 fn redact_json_string(raw: &str) -> String {
     serde_json::from_str::<Value>(raw)
         .map(redact_value)
@@ -264,6 +272,7 @@ fn redact_json_string(raw: &str) -> String {
         .unwrap_or_else(|_| "<non-json body redacted>".to_string())
 }
 
+#[cfg(feature = "full-engine")]
 fn redact_value(value: Value) -> Value {
     match value {
         Value::Object(mut map) => {
@@ -280,6 +289,7 @@ fn redact_value(value: Value) -> Value {
     }
 }
 
+#[cfg(feature = "full-engine")]
 fn sensitive_key(key: &str) -> bool {
     let key = key.to_ascii_lowercase();
     [
@@ -301,6 +311,7 @@ fn sensitive_key(key: &str) -> bool {
     .any(|needle| key.contains(needle))
 }
 
+#[cfg(feature = "full-engine")]
 fn dangerous_body_capture_enabled() -> bool {
     std::env::var("TORCHFLOWER_DANGEROUS_LOG_AUTH_BODIES")
         .ok()
@@ -312,6 +323,7 @@ fn dangerous_body_capture_enabled() -> bool {
         })
 }
 
+#[cfg(feature = "full-engine")]
 fn http_log_metadata(capture_auth_bodies: bool) -> String {
     json!({
         "request_body_capture": if capture_auth_bodies { "dangerous_redacted" } else { "disabled" },
@@ -320,6 +332,7 @@ fn http_log_metadata(capture_auth_bodies: bool) -> String {
     .to_string()
 }
 
+#[cfg(feature = "full-engine")]
 fn auth_error_message(status: StatusCode, request_id: Option<&str>) -> String {
     match request_id {
         Some(request_id) => format!("status={}; request_id={request_id}", status.as_u16()),
@@ -327,10 +340,12 @@ fn auth_error_message(status: StatusCode, request_id: Option<&str>) -> String {
     }
 }
 
+#[cfg(feature = "full-engine")]
 pub fn auth_step_metadata(name: &str) -> Value {
     json!({ "step": name })
 }
 
+#[cfg(feature = "full-engine")]
 pub fn encode_form(form: &[(&str, String)]) -> String {
     form.iter()
         .map(|(key, value)| {
@@ -342,4 +357,32 @@ pub fn encode_form(form: &[(&str, String)]) -> String {
         })
         .collect::<Vec<_>>()
         .join("&")
+}
+
+#[cfg(not(feature = "full-engine"))]
+#[derive(Clone)]
+pub struct Diagnostics;
+
+#[cfg(not(feature = "full-engine"))]
+impl Diagnostics {
+    pub fn new(_db: crate::db::Database) -> Self {
+        Self
+    }
+
+    pub fn new_with_body_capture(_db: crate::db::Database, _capture_auth_bodies: bool) -> Self {
+        Self
+    }
+
+    pub async fn log_event(
+        &self,
+        _account_id: Option<&str>,
+        _bot_id: Option<&str>,
+        _level: &str,
+        _category: &str,
+        _step: Option<&str>,
+        _message: &str,
+        _metadata: serde_json::Value,
+    ) -> crate::error::EngineResult<()> {
+        Ok(())
+    }
 }

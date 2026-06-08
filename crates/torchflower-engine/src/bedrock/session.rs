@@ -2275,12 +2275,325 @@ pub struct ChestRoomBotReport {
     pub errors: Vec<String>,
 }
 
+#[derive(Debug, Clone)]
+pub enum InstantScriptEvent {
+    Spawn {
+        runtime_id: u64,
+        position: (f32, f32, f32),
+    },
+    Death,
+    Gui {
+        form_id: u32,
+        form_content: String,
+    },
+}
+
+#[async_trait::async_trait]
+pub trait InstantScript: Send + Sync {
+    async fn handle_event(
+        &mut self,
+        conn: &mut BedrockProtocolAdapter,
+        session: &ProvisionedBedrockSession,
+        event: InstantScriptEvent,
+    ) -> EngineResult<()>;
+}
+
 impl BedrockBotSession {
     pub fn new(db: Database) -> Self {
         Self {
             diagnostics: Diagnostics::new(db.clone()),
             db,
         }
+    }
+
+    pub async fn run_instant_script<S>(
+        &self,
+        account_id: &str,
+        bot_id: Option<&str>,
+        host: &str,
+        port: u16,
+        session: &ProvisionedBedrockSession,
+        mut script: S,
+        required_duration: Duration,
+    ) -> EngineResult<()>
+    where
+        S: InstantScript,
+    {
+        let mut conn = BedrockProtocolAdapter::connect(host, port).await?;
+        self.diagnostics
+            .log_event(
+                Some(account_id),
+                bot_id,
+                "info",
+                "bedrock",
+                Some("connect"),
+                "RakNet connection established for instant script",
+                json!({ "host": host, "port": port }),
+            )
+            .await?;
+
+        timeout_step(
+            "request NetworkSettings",
+            Duration::from_secs(30),
+            conn.request_network_settings(),
+        )
+        .await?;
+
+        timeout_step(
+            "send LoginPacket",
+            Duration::from_secs(15),
+            conn.send_login(session),
+        )
+        .await?;
+
+        let (mut pending_packets, _encryption_enabled) = timeout_step(
+            "complete login handshake",
+            Duration::from_secs(30),
+            conn.complete_login_handshake(&session.chain),
+        )
+        .await?;
+
+        let started = Instant::now();
+        let mut movement_validation: Option<MovementValidation> = None;
+        let mut movement_init_sent = false;
+        let mut movement_start_not_before: Option<Instant> = None;
+        let mut movement_start_delay_reported = false;
+        let mut resource_stack_done = false;
+        let post_spawn_decode_hold = false;
+
+        while started.elapsed() < required_duration {
+            if post_spawn_decode_hold {
+                sleep(MOVEMENT_SEND_INTERVAL).await;
+                if movement_init_sent {
+                    let mut status = CapabilityStatus::default();
+                    self.drive_movement_validation_when_ready(
+                        account_id,
+                        bot_id,
+                        session,
+                        &mut conn,
+                        &mut movement_validation,
+                        &mut status,
+                        false,
+                        movement_start_not_before,
+                        &mut movement_start_delay_reported,
+                    )
+                    .await?;
+                }
+                continue;
+            }
+
+            let (packets, _observed_packets) = if pending_packets.is_empty() {
+                let recv_timeout = if movement_validation.is_some() && movement_init_sent {
+                    MOVEMENT_SEND_INTERVAL
+                } else if !resource_stack_done {
+                    Duration::from_secs(10)
+                } else {
+                    POST_RESOURCE_STACK_PRE_SPAWN_RECV_TIMEOUT
+                };
+                match timeout(recv_timeout, conn.recv_lenient()).await {
+                    Ok(Ok(batch)) => (batch.typed, batch.observed),
+                    Ok(Err(err)) => {
+                        eprintln!("[INSTANT_SCRIPT] connection error: {err}");
+                        return Err(err);
+                    }
+                    Err(_) => {
+                        if movement_init_sent {
+                            let mut status = CapabilityStatus::default();
+                            self.drive_movement_validation_when_ready(
+                                account_id,
+                                bot_id,
+                                session,
+                                &mut conn,
+                                &mut movement_validation,
+                                &mut status,
+                                false,
+                                movement_start_not_before,
+                                &mut movement_start_delay_reported,
+                            )
+                            .await?;
+                        }
+                        continue;
+                    }
+                }
+            } else {
+                (std::mem::take(&mut pending_packets), Vec::new())
+            };
+
+            for packet in packets {
+                match packet {
+                    BedrockProto::PlayStatus(play_status) => {
+                        if play_status.status == PlayStatus::PlayerSpawn as i32 {
+                            if let Some(mv) = &movement_validation {
+                                script
+                                    .handle_event(
+                                        &mut conn,
+                                        session,
+                                        InstantScriptEvent::Spawn {
+                                            runtime_id: mv.runtime_id.0,
+                                            position: mv.last_sent_position,
+                                        },
+                                    )
+                                    .await?;
+                            }
+                            if !movement_init_sent {
+                                if let Some(runtime_id) =
+                                    movement_validation.as_ref().map(|m| m.runtime_id)
+                                {
+                                    self.send_movement_initialization(
+                                        account_id,
+                                        bot_id,
+                                        &mut conn,
+                                        runtime_id,
+                                        started,
+                                        "instant_script_play_status_player_spawn",
+                                    )
+                                    .await?;
+                                    movement_init_sent = true;
+                                    let (deadline, _delay) = movement_start_deadline();
+                                    movement_start_not_before = deadline;
+                                }
+                            }
+                        }
+                    }
+                    BedrockProto::ResourcePacksInfo(_) => {
+                        conn.send(&[
+                            BedrockProto::ResourcePackClientResponse(
+                                ResourcePackClientResponsePacket {
+                                    response_status: ResourcePackResponse::AllPacksDownloaded
+                                        .as_u8(),
+                                    resource_pack_ids: vec![],
+                                },
+                            ),
+                            BedrockProto::ClientCacheStatus(ClientCacheStatusPacket {
+                                support_client_cache: false,
+                            }),
+                        ])
+                        .await?;
+                    }
+                    BedrockProto::ResourcePackStack(_) => {
+                        resource_stack_done = true;
+                        conn.send(&[BedrockProto::ResourcePackClientResponse(
+                            ResourcePackClientResponsePacket {
+                                response_status: ResourcePackResponse::Completed.as_u8(),
+                                resource_pack_ids: vec![],
+                            },
+                        )])
+                        .await?;
+                    }
+                    BedrockProto::StartGame(start) => {
+                        let current_runtime_id = start.target_runtime_id;
+                        let mv = MovementValidation::new(
+                            ActorRuntimeID(current_runtime_id),
+                            0,
+                            (start.position.x, start.position.y, start.position.z),
+                            (start.rotation.y, start.rotation.x),
+                        );
+                        script
+                            .handle_event(
+                                &mut conn,
+                                session,
+                                InstantScriptEvent::Spawn {
+                                    runtime_id: current_runtime_id,
+                                    position: (
+                                        start.position.x,
+                                        start.position.y,
+                                        start.position.z,
+                                    ),
+                                },
+                            )
+                            .await?;
+                        if !movement_init_sent {
+                            self.send_movement_initialization(
+                                account_id,
+                                bot_id,
+                                &mut conn,
+                                ActorRuntimeID(current_runtime_id),
+                                started,
+                                "instant_script_start_game",
+                            )
+                            .await?;
+                            movement_init_sent = true;
+                            let (deadline, _delay) = movement_start_deadline();
+                            movement_start_not_before = deadline;
+                        }
+                        movement_validation = Some(mv);
+                    }
+                    BedrockProto::MovePlayer(move_player) => {
+                        if let Some(mv) = &mut movement_validation {
+                            if move_player.runtime_id == mv.runtime_id.0 {
+                                mv.record_server_position((
+                                    move_player.position.x,
+                                    move_player.position.y,
+                                    move_player.position.z,
+                                ));
+                            }
+                        }
+                    }
+                    BedrockProto::Respawn(respawn) => {
+                        if let Some(mv) = &mut movement_validation {
+                            if respawn.runtime_entity_id == mv.runtime_id.0 {
+                                mv.record_server_position((
+                                    respawn.position.x,
+                                    respawn.position.y,
+                                    respawn.position.z,
+                                ));
+                            }
+                        }
+                        script
+                            .handle_event(&mut conn, session, InstantScriptEvent::Death)
+                            .await?;
+                    }
+                    BedrockProto::CorrectPlayerMovePrediction(correction) => {
+                        if let Some(mv) = &mut movement_validation {
+                            mv.record_correction((
+                                correction.position.x,
+                                correction.position.y,
+                                correction.position.z,
+                            ));
+                        }
+                    }
+                    BedrockProto::NetworkStackLatency(latency) => {
+                        conn.send_network_stack_latency_response(latency.timestamp)
+                            .await?;
+                    }
+                    BedrockProto::ModalFormRequest(form) => {
+                        script
+                            .handle_event(
+                                &mut conn,
+                                session,
+                                InstantScriptEvent::Gui {
+                                    form_id: form.form_id,
+                                    form_content: form.form_content,
+                                },
+                            )
+                            .await?;
+                    }
+                    BedrockProto::Disconnect(disconnect) => {
+                        eprintln!("[INSTANT_SCRIPT] server disconnected: {disconnect:?}");
+                        conn.close().await;
+                        return Ok(());
+                    }
+                    _ => {}
+                }
+                if movement_init_sent {
+                    let mut status = CapabilityStatus::default();
+                    self.drive_movement_validation_when_ready(
+                        account_id,
+                        bot_id,
+                        session,
+                        &mut conn,
+                        &mut movement_validation,
+                        &mut status,
+                        false,
+                        movement_start_not_before,
+                        &mut movement_start_delay_reported,
+                    )
+                    .await?;
+                }
+            }
+        }
+
+        Ok(())
     }
 
     pub async fn run_chest_room_bot_for(

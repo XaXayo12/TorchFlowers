@@ -9,28 +9,31 @@ use p384::{
     elliptic_curve::Generate,
     pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding},
 };
+#[cfg(feature = "full-engine")]
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-use crate::{
-    auth::XstsToken,
-    db::Database,
-    diagnostics::Diagnostics,
-    error::{EngineError, EngineResult},
-};
+use crate::error::{EngineError, EngineResult};
+#[cfg(feature = "full-engine")]
+use crate::{auth::XstsToken, db::Database, diagnostics::Diagnostics};
 
 const CLASSIC_SKIN_WIDTH: usize = 64;
 const CLASSIC_SKIN_HEIGHT: usize = 64;
 const PRISMARINE_DEFAULT_GAME_VERSION: &str = "1.21.130";
 pub const PRISMARINE_MOJANG_PUBLIC_KEY: &str = "MHYwEAYHKoZIzj0CAQYFK4EEACIDYgAECRXueJeTDqNRRgJi/vlRufByu/2G0i2Ebt6YMar5QX/R0DIIyrJMcUpruK4QveTfJSTp3Shlq4Gk34cD/4GUWwkv0DVuzeuB+tXija7HBxii03NHDbPAD0AKnLr2wdAp";
 
+#[cfg(feature = "full-engine")]
 #[derive(Clone)]
 pub struct MinecraftAuth {
     client: reqwest::Client,
     diagnostics: Diagnostics,
 }
+
+#[cfg(not(feature = "full-engine"))]
+#[derive(Clone)]
+pub struct MinecraftAuth;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BedrockJwtChain {
@@ -43,6 +46,7 @@ pub struct BedrockJwtChain {
     pub title_id: Option<String>,
 }
 
+#[cfg(feature = "full-engine")]
 #[derive(Debug, Deserialize)]
 struct LegacyAuthResponse {
     chain: Vec<String>,
@@ -94,6 +98,7 @@ struct LoginAuthInfo<'a> {
 }
 
 impl MinecraftAuth {
+    #[cfg(feature = "full-engine")]
     pub fn new(db: Database) -> Self {
         Self {
             client: reqwest::Client::new(),
@@ -101,6 +106,7 @@ impl MinecraftAuth {
         }
     }
 
+    #[cfg(feature = "full-engine")]
     pub async fn legacy_bedrock_auth(
         &self,
         account_id: &str,

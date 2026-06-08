@@ -5,10 +5,9 @@ use tokio::sync::Mutex;
 use torchflower_auth::AuthConfig;
 use torchflower_protocol::{Packet, ProtocolVersion};
 
-use crate::{
-    config::Config, db::Database, error::EngineError, models::CapabilityStatus,
-    native_client::NativeBedrockClient,
-};
+#[cfg(feature = "full-engine")]
+use crate::native_client::NativeBedrockClient;
+use crate::{config::Config, db::Database, error::EngineError, models::CapabilityStatus};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct ServerAddress {
@@ -506,7 +505,9 @@ impl BotSessionBuilder {
 
 pub struct BotSession {
     _config: Config,
+    #[allow(dead_code)]
     db: Database,
+    #[allow(dead_code)]
     account_id: String,
     server: ServerAddress,
     policy: AutomationPolicy,
@@ -550,6 +551,7 @@ impl BotSession {
     }
 
     /// Validates that the configured Bedrock server responds on the native RakNet ping path.
+    #[cfg(feature = "full-engine")]
     pub async fn connect(&mut self) -> BotResult<CapabilityStatus> {
         let status = self.validate_for(Duration::from_secs(30), false).await?;
         self.connected = status.success;
@@ -558,6 +560,7 @@ impl BotSession {
     }
 
     /// Runs the native Bedrock server reachability validation through the public session wrapper.
+    #[cfg(feature = "full-engine")]
     pub async fn validate_for(
         &self,
         duration: Duration,

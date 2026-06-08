@@ -20,12 +20,13 @@ path = "src/lib.rs"
 [[bin]]
 name = "torchflower-engine"
 path = "src/main.rs"
+required-features = ["full-engine"]
 
 [dependencies]
 anyhow = "1.0"
 aes-gcm = "0.10"
 async-trait = "0.1"
-axum = { version = "0.8", features = ["macros", "json"] }
+axum = { version = "0.8", features = ["macros", "json"], optional = true }
 base64 = "0.22"
 aes = "0.9.0-rc.4"
 binary-util = "0.3.4"
@@ -47,23 +48,24 @@ torchflower-proto = { version = "0.1.0", path = "../torchflower-proto" }
 torchflower-protocol = { version = "0.1.0", path = "../torchflower-protocol" }
 torchflower-protocol-core = { version = "0.1.0", path = "../torchflower-protocol-core" }
 torchflower-ping = { version = "0.1.0", path = "../torchflower-ping" }
-reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls", "http2", "charset"] }
+reqwest = { version = "0.13.2", default-features = false, features = ["json", "rustls", "http2", "charset"], optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha2 = "0.11.0"
-sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"] }
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite", "chrono", "uuid"], optional = true }
 subtle = "2.6"
 thiserror = "2.0"
 tokio = { version = "1.50", features = ["macros", "rt-multi-thread", "signal", "sync", "time", "net"] }
-tower-http = { version = "0.6", features = ["cors", "trace"] }
+tower-http = { version = "0.6", features = ["cors", "trace"], optional = true }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"], optional = true }
 urlencoding = "2.1"
 uuid = { version = "1.11", features = ["v4", "serde"] }
 console-subscriber = { version = "0.4", optional = true }
 
 [features]
-default = []
+default = ["full-engine"]
+full-engine = ["dep:axum", "dep:sqlx", "dep:tower-http", "dep:tracing-subscriber", "dep:reqwest"]
 console = ["console-subscriber"]
 
 [dev-dependencies]

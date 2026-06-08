@@ -1,17 +1,23 @@
+#[cfg(feature = "full-engine")]
 use std::{path::Path, str::FromStr};
 
+#[cfg(feature = "full-engine")]
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqlitePoolOptions},
     Row, SqlitePool,
 };
+#[cfg(feature = "full-engine")]
 use tokio::fs;
+#[cfg(feature = "full-engine")]
 use uuid::Uuid;
 
+#[cfg(feature = "full-engine")]
 use crate::{
     error::{EngineError, EngineResult},
     models::{Account, Bot, DeviceAuthSession, Entitlement, LogEntry, Server},
 };
 
+#[cfg(feature = "full-engine")]
 #[derive(Debug, Clone)]
 pub struct EntitlementRetryState {
     pub retry_count: i64,
@@ -19,11 +25,13 @@ pub struct EntitlementRetryState {
     pub last_error: Option<String>,
 }
 
+#[cfg(feature = "full-engine")]
 #[derive(Clone)]
 pub struct Database {
     pool: SqlitePool,
 }
 
+#[cfg(feature = "full-engine")]
 impl Database {
     pub async fn connect(database_url: &str) -> EngineResult<Self> {
         if let Some(path) = sqlite_file_path(database_url) {
@@ -656,6 +664,7 @@ impl Database {
     }
 }
 
+#[cfg(feature = "full-engine")]
 fn sqlite_file_path(database_url: &str) -> Option<&str> {
     let path = database_url
         .strip_prefix("sqlite://")
@@ -668,11 +677,13 @@ fn sqlite_file_path(database_url: &str) -> Option<&str> {
     }
 }
 
+#[cfg(feature = "full-engine")]
 fn provisioning_backoff_seconds(retry_count: i64) -> i64 {
     let exponent = retry_count.saturating_sub(1).min(7) as u32;
     (30_i64.saturating_mul(2_i64.saturating_pow(exponent))).min(3600)
 }
 
+#[cfg(feature = "full-engine")]
 pub struct NewLogEntry<'a> {
     pub account_id: Option<&'a str>,
     pub bot_id: Option<&'a str>,
@@ -689,6 +700,7 @@ pub struct NewLogEntry<'a> {
     pub metadata_json: Option<&'a str>,
 }
 
+#[cfg(feature = "full-engine")]
 fn account_from_row(row: sqlx::sqlite::SqliteRow) -> EngineResult<Account> {
     Ok(Account {
         id: row.try_get("id")?,
@@ -708,6 +720,195 @@ fn account_from_row(row: sqlx::sqlite::SqliteRow) -> EngineResult<Account> {
     })
 }
 
+#[cfg(feature = "full-engine")]
 fn parse_json(value: String) -> serde_json::Value {
     serde_json::from_str(&value).unwrap_or_else(|_| serde_json::json!({}))
+}
+
+#[cfg(not(feature = "full-engine"))]
+#[derive(Clone, Debug)]
+pub struct Database;
+
+#[cfg(not(feature = "full-engine"))]
+pub struct NewLogEntry<'a> {
+    pub account_id: Option<&'a str>,
+    pub bot_id: Option<&'a str>,
+    pub level: &'a str,
+    pub category: &'a str,
+    pub step: Option<&'a str>,
+    pub request_id: Option<&'a str>,
+    pub method: Option<&'a str>,
+    pub url: Option<&'a str>,
+    pub status_code: Option<i64>,
+    pub request_body: Option<&'a str>,
+    pub response_body: Option<&'a str>,
+    pub message: &'a str,
+    pub metadata_json: Option<&'a str>,
+}
+
+#[cfg(not(feature = "full-engine"))]
+impl Database {
+    pub async fn connect(_database_url: &str) -> crate::error::EngineResult<Self> {
+        Ok(Self)
+    }
+    pub async fn migrate(&self) -> crate::error::EngineResult<()> {
+        Ok(())
+    }
+    pub async fn get_account(
+        &self,
+        _account_id: &str,
+    ) -> crate::error::EngineResult<crate::models::Account> {
+        Err(crate::error::EngineError::NotFound(
+            "full-engine disabled".to_string(),
+        ))
+    }
+    pub async fn update_bot_runtime_state(
+        &self,
+        _bot_id: &str,
+        _current_position: Option<&str>,
+        _inventory_json: Option<&serde_json::Value>,
+    ) -> crate::error::EngineResult<()> {
+        Ok(())
+    }
+    pub async fn update_bot_capabilities(
+        &self,
+        _bot_id: &str,
+        _capabilities: &serde_json::Value,
+    ) -> crate::error::EngineResult<()> {
+        Ok(())
+    }
+    pub async fn token_ciphertexts(
+        &self,
+        _account_id: &str,
+    ) -> crate::error::EngineResult<(String, String, Option<String>)> {
+        Err(crate::error::EngineError::NotFound(
+            "full-engine disabled".to_string(),
+        ))
+    }
+    pub async fn upsert_account_email(&self, _email: &str) -> crate::error::EngineResult<String> {
+        Err(crate::error::EngineError::NotFound(
+            "full-engine disabled".to_string(),
+        ))
+    }
+    pub async fn get_auth_session_secret(
+        &self,
+        _session_id: &str,
+    ) -> crate::error::EngineResult<(crate::models::DeviceAuthSession, String)> {
+        Err(crate::error::EngineError::NotFound(
+            "full-engine disabled".to_string(),
+        ))
+    }
+    pub async fn begin_entitlement_provisioning(
+        &self,
+        _account_id: &str,
+    ) -> crate::error::EngineResult<()> {
+        Ok(())
+    }
+    pub async fn record_entitlement_provisioning_failure(
+        &self,
+        _account_id: &str,
+        _last_error: &str,
+    ) -> crate::error::EngineResult<EntitlementRetryState> {
+        Err(crate::error::EngineError::NotFound(
+            "full-engine disabled".to_string(),
+        ))
+    }
+    pub async fn update_account_status(
+        &self,
+        _account_id: &str,
+        _column: &str,
+        _status: &str,
+        _last_error: Option<&str>,
+    ) -> crate::error::EngineResult<()> {
+        Ok(())
+    }
+    pub async fn set_account_profile(
+        &self,
+        _account_id: &str,
+        _gamertag: Option<&str>,
+        _xuid: Option<&str>,
+    ) -> crate::error::EngineResult<()> {
+        Ok(())
+    }
+    pub async fn save_tokens(
+        &self,
+        _account_id: &str,
+        _access_token_ciphertext: &str,
+        _refresh_token_ciphertext: &str,
+        _expires_at: &str,
+    ) -> crate::error::EngineResult<()> {
+        Ok(())
+    }
+    pub async fn upsert_entitlement(
+        &self,
+        _account_id: &str,
+        _has_entitlement: bool,
+        _playfab_id: Option<&str>,
+        _session_ticket_ciphertext: Option<&str>,
+        _minecraft_token_ciphertext: Option<&str>,
+        _status: &str,
+        _request_id: Option<&str>,
+        _last_error: Option<&str>,
+    ) -> crate::error::EngineResult<()> {
+        Ok(())
+    }
+    pub async fn update_auth_session_status(
+        &self,
+        _session_id: &str,
+        _status: &str,
+        _last_error: Option<&str>,
+    ) -> crate::error::EngineResult<()> {
+        Ok(())
+    }
+    pub async fn create_auth_session(
+        &self,
+        _account_id: &str,
+        _device_code: &str,
+        _user_code: &str,
+        _verification_uri: &str,
+        _expires_at: &str,
+        _interval_seconds: i64,
+    ) -> crate::error::EngineResult<String> {
+        Err(crate::error::EngineError::NotFound(
+            "full-engine disabled".to_string(),
+        ))
+    }
+    pub async fn update_bot_status(
+        &self,
+        _bot_id: &str,
+        _status: &str,
+        _last_error: Option<&str>,
+    ) -> crate::error::EngineResult<()> {
+        Ok(())
+    }
+    pub async fn get_bot_with_server(
+        &self,
+        _bot_id: &str,
+    ) -> crate::error::EngineResult<(crate::models::Bot, crate::models::Server)> {
+        Err(crate::error::EngineError::NotFound(
+            "full-engine disabled".to_string(),
+        ))
+    }
+    pub async fn mark_bot_left(
+        &self,
+        _bot_id: &str,
+        _status: &str,
+        _last_error: Option<&str>,
+    ) -> crate::error::EngineResult<()> {
+        Ok(())
+    }
+    pub async fn mark_bot_joined(&self, _bot_id: &str) -> crate::error::EngineResult<()> {
+        Ok(())
+    }
+    pub async fn log(&self, _entry: NewLogEntry<'_>) -> crate::error::EngineResult<()> {
+        Ok(())
+    }
+}
+
+#[cfg(not(feature = "full-engine"))]
+#[derive(Debug, Clone)]
+pub struct EntitlementRetryState {
+    pub retry_count: i64,
+    pub next_retry_at: Option<String>,
+    pub last_error: Option<String>,
 }
