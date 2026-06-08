@@ -15,8 +15,8 @@ use torchflower_engine::{
     bedrock::{
         protocol_adapter::{BedrockProtocolAdapter, ObservedInventoryItem},
         session::{
-            BedrockBotSession, InstantScript, InstantScriptEvent,
-            MenuClickTarget, MenuClickMethod, create_offline_session,
+            create_offline_session, BedrockBotSession, InstantScript, InstantScriptEvent,
+            MenuClickMethod, MenuClickTarget,
         },
     },
 };
@@ -265,9 +265,16 @@ impl ScriptedBot {
         }
     }
 
-    async fn execute_step(&self, conn: &mut BedrockProtocolAdapter, step: &ScriptStep) -> Result<()> {
+    async fn execute_step(
+        &self,
+        conn: &mut BedrockProtocolAdapter,
+        step: &ScriptStep,
+    ) -> Result<()> {
         let action = step.action.trim().to_lowercase();
-        warn!("[SCRIPT_BOT] executing action={action} trigger={}", step.trigger);
+        warn!(
+            "[SCRIPT_BOT] executing action={action} trigger={}",
+            step.trigger
+        );
         match action.as_str() {
             "command" => {
                 if let Some(ref cmd) = step.command {
@@ -295,13 +302,14 @@ impl ScriptedBot {
                 if let Some(slot) = step.slot {
                     let window_id = self.current_window_id.unwrap_or(0);
                     let container_type = self.current_window_type.unwrap_or(0);
-                    
-                    let (item_id, stack_id) = if let Some(item) = self.container_items.get(&(window_id as u32, slot)) {
-                        (item.item_id, item.stack_id.unwrap_or(0))
-                    } else {
-                        (0, 0)
-                    };
-                    
+
+                    let (item_id, stack_id) =
+                        if let Some(item) = self.container_items.get(&(window_id as u32, slot)) {
+                            (item.item_id, item.stack_id.unwrap_or(0))
+                        } else {
+                            (0, 0)
+                        };
+
                     let target = MenuClickTarget {
                         window_id: window_id as u32,
                         slot,
@@ -322,12 +330,15 @@ impl ScriptedBot {
         }
         Ok(())
     }
-    
+
     async fn run_chain(&mut self, conn: &mut BedrockProtocolAdapter) -> Result<()> {
         while self.current_step_index < self.script.len() {
             let next_step = &self.script[self.current_step_index];
             if normalize_trigger(&next_step.trigger) == "after_previous" {
-                warn!("[SCRIPT_BOT] executing after_previous step index={}", self.current_step_index);
+                warn!(
+                    "[SCRIPT_BOT] executing after_previous step index={}",
+                    self.current_step_index
+                );
                 tokio::time::sleep(Duration::from_millis(1000)).await;
                 self.execute_step(conn, next_step).await?;
                 self.current_step_index += 1;
@@ -348,7 +359,7 @@ impl InstantScript for ScriptedBot {
         event: InstantScriptEvent,
     ) -> torchflower_engine::error::EngineResult<()> {
         self.current_tick = self.current_tick.saturating_add(1);
-        
+
         let res: Result<()> = async {
             match event {
                 InstantScriptEvent::Spawn { runtime_id, entity_id, position } => {
@@ -356,10 +367,10 @@ impl InstantScript for ScriptedBot {
                     self.player_runtime_id = runtime_id;
                     self.player_entity_id = entity_id;
                     self.player_position = position;
-                    
+
                     // Reset step index to restart the sequence from the beginning on spawn
                     self.current_step_index = 0;
-                    
+
                     if self.current_step_index < self.script.len() {
                         let step = &self.script[self.current_step_index];
                         if normalize_trigger(&step.trigger) == "on_spawn" {
@@ -373,7 +384,7 @@ impl InstantScript for ScriptedBot {
                     warn!("[SCRIPT_BOT] InventoryGui event: window_id={window_id}, window_type={window_type}");
                     self.current_window_id = Some(window_id);
                     self.current_window_type = Some(window_type);
-                    
+
                     if self.current_step_index < self.script.len() {
                         let step = &self.script[self.current_step_index];
                         if normalize_trigger(&step.trigger) == "on_inventory_gui" {
@@ -438,7 +449,7 @@ async fn run_single_bot(
 
     loop {
         warn!("bot {name} connecting to {}:{}", server.host, server.port);
-        
+
         let session = match create_offline_session(&name) {
             Ok(s) => s,
             Err(e) => {
@@ -472,15 +483,17 @@ async fn run_single_bot(
             Duration::from_secs(duration_secs)
         };
 
-        let run_res = bot_session.run_instant_script(
-            &name,
-            None,
-            &server.host,
-            server.port,
-            &session,
-            script,
-            run_duration,
-        ).await;
+        let run_res = bot_session
+            .run_instant_script(
+                &name,
+                None,
+                &server.host,
+                server.port,
+                &session,
+                script,
+                run_duration,
+            )
+            .await;
 
         if let Err(e) = run_res {
             warn!("bot {name} connection error: {e:?}");

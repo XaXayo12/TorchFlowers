@@ -2662,11 +2662,7 @@ impl BedrockBotSession {
 }
 
 impl BedrockProtocolAdapter {
-    pub async fn send_command(
-        &mut self,
-        command: &str,
-        player_entity_id: i64,
-    ) -> EngineResult<()> {
+    pub async fn send_command(&mut self, command: &str, player_entity_id: i64) -> EngineResult<()> {
         let clean_command = command_request_wire_command(command);
         let request_id = Uuid::new_v4().to_string();
         eprintln!(
@@ -2698,7 +2694,10 @@ impl BedrockProtocolAdapter {
     }
 
     pub async fn respawn(&mut self, runtime_id: u64) -> EngineResult<()> {
-        eprintln!("[RESPAWN_TX] sending PlayerAction respawn for runtime_id={}", runtime_id);
+        eprintln!(
+            "[RESPAWN_TX] sending PlayerAction respawn for runtime_id={}",
+            runtime_id
+        );
         self.send_preencoded_packet_stream(
             "player_action_respawn",
             encode_player_action_respawn(runtime_id),
@@ -2731,7 +2730,10 @@ impl BedrockProtocolAdapter {
 
         eprintln!(
             "[GAMEPLAY_TX] use_block_in_front player_pos={:?} dir={:?} block_pos={:?} tick={}",
-            position, (dx, dy, dz), block_pos, tick
+            position,
+            (dx, dy, dz),
+            block_pos,
+            tick
         );
 
         let transaction = RawItemUseTransaction {
@@ -2792,7 +2794,7 @@ fn encode_player_action_respawn(runtime_id: u64) -> Vec<u8> {
 
 pub fn create_offline_session(username: &str) -> EngineResult<ProvisionedBedrockSession> {
     use crate::auth::minecraft::MinecraftAuth;
-    use jsonwebtoken::{encode, Algorithm, Header, EncodingKey};
+    use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 
     let (_signing_key, private_key_pem, public_key) = MinecraftAuth::generate_device_keypair()?;
 
@@ -2806,7 +2808,10 @@ pub fn create_offline_session(username: &str) -> EngineResult<ProvisionedBedrock
     extra_data.insert("titleId".to_string(), json!("1"));
 
     let mut claims = serde_json::Map::new();
-    claims.insert("extraData".to_string(), serde_json::Value::Object(extra_data));
+    claims.insert(
+        "extraData".to_string(),
+        serde_json::Value::Object(extra_data),
+    );
     claims.insert("identityPublicKey".to_string(), json!(public_key));
     claims.insert("iat".to_string(), json!(now));
     claims.insert("exp".to_string(), json!(now + 86400));
@@ -2815,8 +2820,8 @@ pub fn create_offline_session(username: &str) -> EngineResult<ProvisionedBedrock
     header.typ = None;
     header.x5u = Some(public_key.clone());
 
-    let identity_jwt = encode(&header, &claims, &encoding_key)
-        .map_err(|e| EngineError::Crypto(e.to_string()))?;
+    let identity_jwt =
+        encode(&header, &claims, &encoding_key).map_err(|e| EngineError::Crypto(e.to_string()))?;
 
     let chain = crate::auth::minecraft::BedrockJwtChain {
         chain: vec![identity_jwt],
