@@ -616,6 +616,7 @@ fn load_bot_session(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_single_bot(
     index: usize,
     server: ServerConfig,
