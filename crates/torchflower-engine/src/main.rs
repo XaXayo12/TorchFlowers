@@ -2,7 +2,12 @@
 
 use std::net::SocketAddr;
 
-use torchflower_engine::{api, config::Config, db::Database, validation::RealServerValidation};
+use torchflower_engine::{
+    api,
+    config::Config,
+    db::Database,
+    validation::{ChestRoomBotValidation, RealServerValidation},
+};
 #[cfg(not(feature = "console"))]
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
@@ -43,6 +48,11 @@ async fn async_main() -> anyhow::Result<()> {
     match std::env::args().nth(1).as_deref() {
         Some("validate-real-server") => {
             RealServerValidation::new(config, db).run_from_env().await?;
+        }
+        Some("run-room-bot") => {
+            ChestRoomBotValidation::new(config, db)
+                .run_from_env()
+                .await?;
         }
         _ => {
             let bind: SocketAddr = config.rust_engine_bind.parse()?;

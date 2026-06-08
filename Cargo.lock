@@ -3699,10 +3699,16 @@ version = "0.1.0"
 dependencies = [
  "torchflower-addon",
  "torchflower-auth",
+ "torchflower-client",
+ "torchflower-data",
  "torchflower-engine",
  "torchflower-level",
- "torchflower-net",
+ "torchflower-network",
+ "torchflower-ping",
  "torchflower-proto",
+ "torchflower-protocol",
+ "torchflower-protocol-core",
+ "torchflower-server",
 ]
 
 [[package]]
@@ -3734,6 +3740,29 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+]
+
+[[package]]
+name = "torchflower-client"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "serde",
+ "thiserror",
+ "tokio",
+ "torchflower-auth",
+ "torchflower-network",
+ "torchflower-protocol",
+ "torchflower-protocol-core",
+]
+
+[[package]]
+name = "torchflower-data"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -3769,8 +3798,11 @@ dependencies = [
  "thiserror",
  "tokio",
  "torchflower-auth",
- "torchflower-net",
+ "torchflower-network",
+ "torchflower-ping",
  "torchflower-proto",
+ "torchflower-protocol",
+ "torchflower-protocol-core",
  "tower 0.5.3",
  "tower-http",
  "tracing",
@@ -3788,7 +3820,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "torchflower-net"
+name = "torchflower-network"
 version = "0.1.0"
 dependencies = [
  "binary-util",
@@ -3802,6 +3834,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "torchflower-ping"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "tokio",
+ "torchflower-network",
+]
+
+[[package]]
 name = "torchflower-proto"
 version = "0.1.0"
 dependencies = [
@@ -3812,6 +3854,43 @@ dependencies = [
  "serde_json",
  "thiserror",
  "zstd",
+]
+
+[[package]]
+name = "torchflower-protocol"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "flate2",
+ "serde",
+ "serde_json",
+ "thiserror",
+ "torchflower-protocol-core",
+ "uuid",
+ "zstd",
+]
+
+[[package]]
+name = "torchflower-protocol-core"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "serde",
+ "thiserror",
+ "uuid",
+]
+
+[[package]]
+name = "torchflower-server"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "bytes",
+ "serde",
+ "thiserror",
+ "tokio",
+ "torchflower-network",
+ "torchflower-protocol",
 ]
 
 [[package]]

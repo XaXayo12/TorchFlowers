@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use torchflower_net::native::{NativePingClient, PingResponse};
+use torchflower_network::native::{NativePingClient, PingResponse};
 
 use crate::{error::EngineError, models::CapabilityStatus};
 
@@ -63,7 +63,7 @@ fn native_ping_status(response: PingResponse, requested_duration: Duration) -> C
 mod tests {
     use std::{net::SocketAddr, time::Duration};
 
-    use torchflower_net::{
+    use torchflower_network::{
         native::{NativePingServer, PingResponse},
         protocol::mcpe::motd::{Gamemode, Motd},
     };

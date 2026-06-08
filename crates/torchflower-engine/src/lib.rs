@@ -24,3 +24,4 @@ pub mod models;
 pub mod native_client;
 pub mod pool;
 pub mod validation;
+pub use crate::core::{BotBuilder, BotSession, BotEvent, Event};

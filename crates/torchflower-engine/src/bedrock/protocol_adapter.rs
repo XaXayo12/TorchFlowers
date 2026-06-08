@@ -2,10 +2,9 @@ use base64::{
     engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD},
     Engine as _,
 };
-use bedrock::protocol::{
-    unknown::packets::RequestNetworkSettingsPacket as UnknownRequestNetworkSettingsPacket,
-    v662::{enums::PacketCompressionAlgorithm, packets::ClientToServerHandshakePacket},
-    ProtoVersion, Unknown, V898 as BedrockProto,
+use torchflower_protocol::{
+    Packet as BedrockProto, ProtocolVersion as ProtoVersion,
+    RequestNetworkSettingsPacket, ClientToServerHandshakePacket,
 };
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use p384::{
@@ -31,6 +30,7 @@ pub struct BedrockProtocolAdapter {
     compression: Option<Compression>,
     encryption: Option<Encryption>,
     server_address: String,
+    version: ProtoVersion,
 }
 
 #[derive(Debug, Clone)]
@@ -187,38 +187,41 @@ fn should_log_limited(counter: &AtomicUsize, limit: usize) -> bool {
 
 impl BedrockProtocolAdapter {
     pub async fn connect(host: &str, port: u16) -> EngineResult<Self> {
+        let version = login_proto_version();
         Ok(Self {
-            transport: RaknetClientAdapter::connect(host, port, BedrockProto::RAKNET_VERSION)
+            transport: RaknetClientAdapter::connect(host, port, 11)
                 .await?,
             compression: None,
             encryption: None,
             server_address: login_server_address(host, port),
+            version,
         })
     }
 
     pub async fn request_network_settings(&mut self) -> EngineResult<()> {
-        let packet =
-            Unknown::RequestNetworkSettingsPacket(Box::new(UnknownRequestNetworkSettingsPacket {
-                client_network_version: login_protocol_version(),
-            }));
-        let payload = codec::encode_packets::<Unknown>(&[packet], None, None)
+        let packet = BedrockProto::RequestNetworkSettings(RequestNetworkSettingsPacket {
+            protocol_version: login_protocol_version(),
+        });
+        let version = self.version;
+        let payload = codec::encode_packets(&[packet], None, None, version)
             .map_err(|err| EngineError::Bedrock(format!("encode RequestNetworkSettings: {err}")))?;
         self.transport.send_game_packet(&payload).await?;
         let response = self.transport.recv_game_packet().await?;
-        let packets = codec::decode_packets::<BedrockProto>(response, None, None)
+        let packets = codec::decode_packets(response, None, None, version)
             .map_err(|err| EngineError::Bedrock(format!("decode NetworkSettings: {err}")))?;
+        println!("[DEBUG] Received packets: {:?}", packets);
         for packet in packets {
-            if let BedrockProto::NetworkSettingsPacket(settings) = packet {
+            if let BedrockProto::NetworkSettings(settings) = packet {
                 println!("Parsed NetworkSettingsPacket: {:?}", settings);
                 self.compression = Some(match settings.compression_algorithm {
-                    PacketCompressionAlgorithm::ZLib => Compression::Zlib {
+                    0 => Compression::Zlib {
                         threshold: settings.compression_threshold,
                         compression_level: 7,
                     },
-                    PacketCompressionAlgorithm::Snappy => Compression::Snappy {
+                    1 => Compression::Snappy {
                         threshold: settings.compression_threshold,
                     },
-                    PacketCompressionAlgorithm::None => Compression::None,
+                    _ => Compression::None,
                 });
                 return Ok(());
             }
@@ -288,15 +291,15 @@ impl BedrockProtocolAdapter {
         loop {
             for packet in self.recv().await? {
                 match packet {
-                    BedrockProto::ServerToClientHandshakePacket(handshake) => {
+                    BedrockProto::ServerToClientHandshake(handshake) => {
                         eprintln!("[LOGIN_HANDSHAKE] rx ServerToClientHandshake");
                         self.encryption = Some(Self::derive_encryption_from_handshake(
                             chain,
                             &handshake.handshake_web_token,
                         )?);
-                        self.send(&[BedrockProto::ClientToServerHandshakePacket(Box::new(
+                        self.send(&[BedrockProto::ClientToServerHandshake(
                             ClientToServerHandshakePacket {},
-                        ))])
+                        )])
                         .await?;
                         encryption_enabled = true;
                     }
@@ -313,10 +316,10 @@ impl BedrockProtocolAdapter {
                 || pending.iter().any(|p| {
                     matches!(
                         p,
-                        BedrockProto::PlayStatusPacket(_)
-                            | BedrockProto::ResourcePacksInfoPacket(_)
-                            | BedrockProto::ResourcePackStackPacket(_)
-                            | BedrockProto::StartGamePacket(_)
+                        BedrockProto::PlayStatus(_)
+                            | BedrockProto::ResourcePacksInfo(_)
+                            | BedrockProto::ResourcePackStack(_)
+                            | BedrockProto::StartGame(_)
                     )
                 })
             {
@@ -365,15 +368,16 @@ impl BedrockProtocolAdapter {
 
     pub async fn send(&mut self, packets: &[BedrockProto]) -> EngineResult<()> {
         if self.encryption.is_some() && trace_packets_enabled() {
-            let plain_batch = codec::encode_packets::<BedrockProto>(packets, None, None)
+            let plain_batch = codec::encode_packets(packets, None, None, self.version)
                 .map_err(|err| EngineError::Bedrock(format!("trace encode packet batch: {err}")))?;
             log_packet_summaries("TX", &plain_batch);
         }
 
-        let payload = codec::encode_packets::<BedrockProto>(
+        let payload = codec::encode_packets(
             packets,
             self.compression.as_ref(),
             self.encryption.as_mut(),
+            self.version,
         )
         .map_err(|err| EngineError::Bedrock(format!("encode packet batch: {err}")))?;
         self.transport.send_game_packet(&payload).await
@@ -464,7 +468,7 @@ impl BedrockProtocolAdapter {
         }
         let packet_stream = self.prepare_inbound_packet_stream(payload)?;
         let (packet_stream, _) = filter_locally_decoded_packets(&packet_stream)?;
-        match codec::decode_packets::<BedrockProto>(packet_stream, None, None) {
+        match codec::decode_packets(packet_stream, None, None, self.version) {
             Ok(packets) => Ok(packets),
             Err(err) => {
                 eprintln!("[BEDROCK_DECODE_ERROR] decode packet batch: {err}");
@@ -487,7 +491,7 @@ impl BedrockProtocolAdapter {
         let observed = observe_packet_ids(&packet_stream)?;
         let (filtered_packet_stream, locally_observed) =
             filter_locally_decoded_packets(&packet_stream)?;
-        match codec::decode_packets::<BedrockProto>(filtered_packet_stream, None, None) {
+        match codec::decode_packets(filtered_packet_stream, None, None, self.version) {
             Ok(typed) => Ok(InboundBatch {
                 typed,
                 observed: merge_locally_observed_with_raw_keepalives(observed, locally_observed),
@@ -3259,6 +3263,16 @@ fn login_protocol_version() -> i32 {
         .ok()
         .and_then(|value| value.trim().parse::<i32>().ok())
         .unwrap_or(PRISMARINE_DONUT_PROTOCOL_VERSION)
+}
+
+fn login_proto_version() -> ProtoVersion {
+    match login_protocol_version() {
+        662 => ProtoVersion::V662,
+        766 => ProtoVersion::V766,
+        898 => ProtoVersion::V898,
+        975 => ProtoVersion::V975,
+        _ => ProtoVersion::V898,
+    }
 }
 
 fn override_connection_request() -> EngineResult<Option<Vec<u8>>> {

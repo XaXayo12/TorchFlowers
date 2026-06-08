@@ -1,0 +1,18 @@
+[package]
+name = "torchflower-ping"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Lightweight Minecraft Bedrock server ping utility."
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/torchflower-ping"
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+tokio = { version = "1.28.2", features = ["full"] }
+torchflower-network = { version = "0.1.0", path = "../torchflower-net" }
+serde = { version = "1.0", features = ["derive"] }
+anyhow = "1.0"

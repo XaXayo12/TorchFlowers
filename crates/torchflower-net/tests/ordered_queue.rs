@@ -1,6 +1,6 @@
-use torchflower_net::connection::controller::window::ReliableWindow;
-use torchflower_net::connection::queue::{OrderedQueue, RecvQueue};
-use torchflower_net::protocol::frame::FramePacket;
+use torchflower_network::connection::controller::window::ReliableWindow;
+use torchflower_network::connection::queue::{OrderedQueue, RecvQueue};
+use torchflower_network::protocol::frame::FramePacket;
 
 #[test]
 fn ordered_queue_holds_later_packets_until_missing_index_arrives() {

@@ -109,7 +109,7 @@ mod tests {
 ///
 /// Usage example:
 /// ```rust
-/// use torchflower_net::util::CacheStore;
+/// use torchflower_network::util::CacheStore;
 ///
 /// let mut myStore: CacheStore<u8, Vec<u8>> = CacheStore::new();
 /// let myPacket = (0 as u8, vec![0, 0, 0, 1]);

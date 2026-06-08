@@ -18,7 +18,7 @@ async fn main() -> anyhow::Result<()> {
 
     let bot = BotBuilder::new()
         .address(host, port)
-        .protocol_version(ProtocolVersion::V1_21_100)
+        .protocol_version(ProtocolVersion::Auto)
         .auth(AuthConfig::device_code())
         .build()
         .await?;

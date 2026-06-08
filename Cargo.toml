@@ -18,6 +18,12 @@ resolver = "3"
 members = [
     "crates/torchflower",
     "crates/torchflower-auth",
+    "crates/torchflower-protocol-core",
+    "crates/torchflower-protocol",
+    "crates/torchflower-ping",
+    "crates/torchflower-client",
+    "crates/torchflower-server",
+    "crates/torchflower-data",
     "crates/torchflower-proto",
     "crates/torchflower-net",
     "crates/torchflower-engine",

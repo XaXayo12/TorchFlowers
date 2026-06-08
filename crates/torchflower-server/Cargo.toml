@@ -1,0 +1,21 @@
+[package]
+name = "torchflower-server"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Minecraft Bedrock server implementation for TorchFlower."
+repository.workspace = true
+homepage.workspace = true
+documentation = "https://docs.rs/torchflower-server"
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+tokio = { version = "1.28.2", features = ["full"] }
+bytes = "1.8"
+serde = { version = "1.0", features = ["derive"] }
+thiserror = "2.0"
+anyhow = "1.0"
+torchflower-network = { version = "0.1.0", path = "../torchflower-net" }
+torchflower-protocol = { version = "0.1.0", path = "../torchflower-protocol" }

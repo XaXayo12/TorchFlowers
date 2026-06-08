@@ -1,4 +1,4 @@
-use torchflower_net::{
+use torchflower_network::{
     connection::queue::FragmentQueue,
     protocol::{
         frame::{FragmentMeta, Frame},

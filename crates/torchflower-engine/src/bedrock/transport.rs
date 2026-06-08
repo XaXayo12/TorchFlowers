@@ -1,5 +1,5 @@
 use binary_util::interfaces::Writer;
-use torchflower_net::{
+use torchflower_network::{
     client::{Client, DEFAULT_MTU},
     protocol::{
         packet::online::{ConnectedPing, OnlinePacket},

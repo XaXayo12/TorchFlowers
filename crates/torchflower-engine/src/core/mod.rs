@@ -3,7 +3,7 @@ use std::{collections::VecDeque, fmt, future::Future, pin::Pin, sync::Arc, time:
 use async_trait::async_trait;
 use tokio::sync::Mutex;
 use torchflower_auth::AuthConfig;
-use torchflower_proto::{Packet, ProtocolVersion};
+use torchflower_protocol::{Packet, ProtocolVersion};
 
 use crate::{
     config::Config, db::Database, error::EngineError, models::CapabilityStatus,
@@ -561,12 +561,30 @@ impl BotSession {
     pub async fn validate_for(
         &self,
         duration: Duration,
-        _run_gameplay_validation: bool,
+        run_gameplay_validation: bool,
     ) -> BotResult<CapabilityStatus> {
         self.db.get_account(&self.account_id).await?;
-        Ok(NativeBedrockClient::default()
-            .validate_ping(&self.server.host, self.server.port, duration)
-            .await?)
+        if run_gameplay_validation {
+            let session = crate::auth::entitlement::EntitlementProvisioner::new(&self._config, self.db.clone())
+                .provision(&self.account_id)
+                .await?;
+            let report = crate::bedrock::session::BedrockBotSession::new(self.db.clone())
+                .validate_real_server_for(
+                    &self.account_id,
+                    None,
+                    &self.server.host,
+                    self.server.port,
+                    &session,
+                    true,
+                    duration,
+                )
+                .await?;
+            Ok(report)
+        } else {
+            Ok(NativeBedrockClient::default()
+                .validate_ping(&self.server.host, self.server.port, duration)
+                .await?)
+        }
     }
 
     /// Marks the high-level session disconnected and emits no packets if no persistent transport is active.
@@ -757,7 +775,7 @@ impl BotSession {
 mod tests {
     use super::*;
     use crate::config::MicrosoftAuthFlow;
-    use torchflower_net::{
+    use torchflower_network::{
         native::NativePingServer,
         protocol::mcpe::motd::{Gamemode, Motd},
     };

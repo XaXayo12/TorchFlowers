@@ -1,5 +1,5 @@
 [package]
-name = "torchflower-net"
+name = "torchflower-network"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -7,7 +7,7 @@ license.workspace = true
 description = "RakNet transport, fragmentation, ACK/NACK, and reassembly for TorchFlower."
 repository.workspace = true
 homepage.workspace = true
-documentation = "https://docs.rs/torchflower-net"
+documentation = "https://docs.rs/torchflower-network"
 keywords.workspace = true
 categories.workspace = true
 readme = "README.md"

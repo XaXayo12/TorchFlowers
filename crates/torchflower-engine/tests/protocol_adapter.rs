@@ -4,7 +4,7 @@ use std::{
 };
 
 use torchflower_engine::native_client::NativeBedrockClient;
-use torchflower_net::{
+use torchflower_network::{
     native::{NativePingClient, NativePingServer},
     protocol::mcpe::motd::{Gamemode, Motd},
 };

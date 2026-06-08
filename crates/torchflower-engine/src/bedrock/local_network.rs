@@ -15,10 +15,8 @@ pub mod error {
 
     #[derive(Debug, Error)]
     pub enum NetworkCodecError {
-        #[error("packet codec error: {0}")]
-        Packet(#[from] bedrock_protocol_core::error::PacketCodecError),
         #[error("proto codec error: {0}")]
-        Proto(#[from] bedrock_protocol_core::error::ProtoCodecError),
+        Proto(#[from] torchflower_protocol_core::CoreError),
         #[error("compression error: {0}")]
         Compression(#[from] super::compression::CompressionError),
         #[error("encryption error: {0}")]
@@ -232,65 +230,56 @@ pub mod encryption {
 
 pub mod codec {
     use super::{compression::Compression, encryption::Encryption, error::NetworkCodecError};
-    use bedrock_protocol_core::{PacketHeader, Packets, ProtoCodecVAR};
-    use std::io::{Cursor, Write};
+    use torchflower_protocol::{Packet, ProtocolVersion};
+    use torchflower_protocol_core::{get_var_u32, put_var_u32};
+    use bytes::{Bytes, BytesMut, BufMut};
+    use std::io::Cursor;
 
-    pub fn encode_packets<T: Packets>(
-        packets: &[T],
+    pub fn encode_packets(
+        packets: &[Packet],
         compression: Option<&Compression>,
         encryption: Option<&mut Encryption>,
+        version: ProtocolVersion,
     ) -> Result<Vec<u8>, NetworkCodecError> {
-        let packet_stream = batch_packets(packets)?;
+        let mut packet_stream = Vec::new();
+        for packet in packets {
+            let payload = packet.encode(version)
+                .map_err(|e| NetworkCodecError::Proto(e))?;
+            
+            let mut packet_buf = BytesMut::new();
+            put_var_u32(&mut packet_buf, packet.id());
+            packet_buf.put_slice(&payload);
+            
+            put_var_u32(&mut packet_stream, packet_buf.len() as u32);
+            packet_stream.extend_from_slice(&packet_buf);
+        }
+
         let packet_stream = compress_packets(packet_stream, compression)?;
         encrypt_packets(packet_stream, encryption)
     }
 
-    pub fn decode_packets<T: Packets>(
+    pub fn decode_packets(
         packet_stream: Vec<u8>,
         compression: Option<&Compression>,
         encryption: Option<&mut Encryption>,
-    ) -> Result<Vec<T>, NetworkCodecError> {
+        version: ProtocolVersion,
+    ) -> Result<Vec<Packet>, NetworkCodecError> {
         let packet_stream = decrypt_packets(packet_stream, encryption)?;
         let packet_stream = decompress_packets(packet_stream, compression)?;
-        separate_packets(packet_stream)
+        separate_packets(packet_stream, version)
     }
 
-    fn batch_packets<T: Packets>(packets: &[T]) -> Result<Vec<u8>, NetworkCodecError> {
-        let packet_stream_size = packets
-            .iter()
-            .map(|packet| {
-                let packet_size = packet.size_hint(&PacketHeader {
-                    packet_id: packet.id(),
-                    sender_sub_client_id: 0,
-                    target_sub_client_id: 0,
-                });
-                <i32 as ProtoCodecVAR>::size_hint(&(packet_size as i32)) + packet_size
-            })
-            .sum::<usize>();
-
-        let mut packet_stream = Vec::with_capacity(packet_stream_size);
-        for packet in packets {
-            let header = PacketHeader {
-                packet_id: packet.id(),
-                sender_sub_client_id: 0,
-                target_sub_client_id: 0,
-            };
-            let mut buf = Vec::with_capacity(packet.size_hint(&header));
-            packet.serialize(&header, &mut buf)?;
-            <u32 as ProtoCodecVAR>::serialize(&(buf.len() as u32), &mut packet_stream)?;
-            packet_stream.write_all(&buf)?;
-        }
-        Ok(packet_stream)
-    }
-
-    fn separate_packets<T: Packets>(packet_stream: Vec<u8>) -> Result<Vec<T>, NetworkCodecError> {
+    fn separate_packets(
+        packet_stream: Vec<u8>,
+        version: ProtocolVersion,
+    ) -> Result<Vec<Packet>, NetworkCodecError> {
         let mut cursor = Cursor::new(packet_stream.as_slice());
         let mut packets = Vec::new();
 
         while cursor.position() < cursor.get_ref().len() as u64 {
-            let buf_len = <u32 as ProtoCodecVAR>::deserialize(&mut cursor)?;
+            let buf_len = get_var_u32(&mut cursor).map_err(|e| NetworkCodecError::Proto(e))? as usize;
             let start = cursor.position() as usize;
-            let end = start.saturating_add(buf_len as usize);
+            let end = start.saturating_add(buf_len);
             if end > cursor.get_ref().len() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::UnexpectedEof,
@@ -303,8 +292,13 @@ pub mod codec {
                 .into());
             }
 
-            let mut packet_cursor = Cursor::new(&cursor.get_ref()[start..end]);
-            packets.push(T::deserialize(&mut packet_cursor)?.0);
+            let mut packet_data = &cursor.get_ref()[start..end];
+            let id = get_var_u32(&mut packet_data).map_err(|e| NetworkCodecError::Proto(e))?;
+            let mut payload = Bytes::copy_from_slice(packet_data);
+            
+            let decoded = Packet::decode(id, &mut payload, version)
+                .map_err(|e| NetworkCodecError::Proto(e))?;
+            packets.push(decoded);
             cursor.set_position(end as u64);
         }
 

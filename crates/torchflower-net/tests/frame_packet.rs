@@ -1,5 +1,5 @@
 use binary_util::interfaces::Writer;
-use torchflower_net::protocol::{
+use torchflower_network::protocol::{
     frame::{FragmentMeta, Frame, FramePacket},
     reliability::Reliability,
 };
