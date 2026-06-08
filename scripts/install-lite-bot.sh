@@ -24,5 +24,3 @@ cargo install \
 echo "Installed successfully:"
 command -v torchflower-lite-bot
 torchflower-lite-bot --help || true
-# EOF
-
