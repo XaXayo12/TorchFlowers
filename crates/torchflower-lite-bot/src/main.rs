@@ -220,6 +220,7 @@ fn validate_config(config: &Config) -> Result<(), anyhow::Error> {
     Ok(())
 }
 
+/// Entry point for the TorchFlower Lite Bot application.
 fn main() -> Result<(), anyhow::Error> {
     let cli = Cli::parse();
 

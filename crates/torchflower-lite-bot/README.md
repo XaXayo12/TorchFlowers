@@ -4,7 +4,9 @@
 
 ---
 
-## How It Differs from the Full TorchFlower Engine
+## Key Features & Comparison
+
+### How It Differs from the Full TorchFlower Engine
 
 * **Shared Process & Runtime**: Running bots share a single system process and a single-threaded Tokio async event loop (rather than spawning multiple OS threads or processes per bot).
 * **Minimalist Dependencies**: Bypasses heavy dashboard, web API, database migration, or telemetry systems by disabling `full-engine` features inside `torchflower-engine`.

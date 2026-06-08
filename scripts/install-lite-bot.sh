@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Quick installer script for TorchFlower Lite Bot
 set -euo pipefail
 
 REPO_URL="https://github.com/Osamu-GWAD/TorchFlower"

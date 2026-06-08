@@ -1,3 +1,5 @@
+# TorchFlower Lite Bot Configuration
+
 [package]
 name = "torchflower-lite-bot"
 version = "0.1.0"
