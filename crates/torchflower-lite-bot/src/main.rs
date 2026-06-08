@@ -245,7 +245,7 @@ struct ScriptedBot {
 }
 
 fn normalize_trigger(t: &str) -> String {
-    t.trim().to_lowercase().replace(' ', "_").replace('-', "_")
+    t.trim().to_lowercase().replace([' ', '-'], "_")
 }
 
 impl ScriptedBot {

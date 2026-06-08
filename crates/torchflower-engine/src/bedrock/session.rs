@@ -2450,20 +2450,18 @@ impl BedrockBotSession {
                                 .await?;
                         }
                     }
-                    ObservedPacket::InventorySlot { item } => {
-                        if let Some(ref it) = item {
-                            script
-                                .handle_event(
-                                    &mut conn,
-                                    session,
-                                    InstantScriptEvent::InventorySlot {
-                                        container_id: it.container_id,
-                                        slot: it.slot,
-                                        item: Some(it.clone()),
-                                    },
-                                )
-                                .await?;
-                        }
+                    ObservedPacket::InventorySlot { item: Some(ref it) } => {
+                        script
+                            .handle_event(
+                                &mut conn,
+                                session,
+                                InstantScriptEvent::InventorySlot {
+                                    container_id: it.container_id,
+                                    slot: it.slot,
+                                    item: Some(it.clone()),
+                                },
+                            )
+                            .await?;
                     }
                     _ => {}
                 }
