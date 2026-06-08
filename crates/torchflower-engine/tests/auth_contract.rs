@@ -89,7 +89,7 @@ fn jwt_chain_generator_creates_connection_request() {
     let request = MinecraftAuth::connection_request(
         &chain,
         "MCToken test-token",
-        "donutsmp.net:19132",
+        "play.example.com:19132",
         Some("test-playfab-id"),
     )
     .unwrap();
@@ -99,7 +99,7 @@ fn jwt_chain_generator_creates_connection_request() {
     assert_eq!(fingerprint.legacy_token_len, "MCToken test-token".len());
     assert_eq!(
         fingerprint.server_address.as_deref(),
-        Some("donutsmp.net:19132")
+        Some("play.example.com:19132")
     );
     assert_eq!(fingerprint.game_version.as_deref(), Some("1.21.130"));
     assert_eq!(
@@ -152,7 +152,7 @@ fn jwt_chain_generator_creates_connection_request() {
     let skin_payload: serde_json::Value = serde_json::from_slice(&skin_payload_bytes).unwrap();
     assert_eq!(
         skin_payload["ServerAddress"].as_str(),
-        Some("donutsmp.net:19132")
+        Some("play.example.com:19132")
     );
     assert_eq!(skin_payload["GameVersion"].as_str(), Some("1.21.130"));
     assert_eq!(

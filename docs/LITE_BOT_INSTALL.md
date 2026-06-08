@@ -86,11 +86,7 @@ reconnect = true
 
 [[bots]]
 username = "Bot_1"
-mode = "kill-loop"
-
-[[bots]]
-username = "Bot_2"
-mode = "kill-loop"
+mode = "afk"
 ```
 
 ## Low-resource settings

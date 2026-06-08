@@ -595,13 +595,10 @@ reconnect = true
 
 [[bots]]
 username = "Bot_1"
-mode = "scripted"
-script = [
-    { trigger = "on spawn", action = "command", command = "/tpa sheismytype" },
-    { trigger = "on inventory_gui", action = "click_slot", slot = 15 },
-    { trigger = "after_previous", action = "use_block_in_front" },
-    { trigger = "after_previous", action = "command", command = "/kill" },
-    { trigger = "on death", action = "respawn" }
-]
+mode = "afk"
+
+# For private scripted bots, create your own bots.toml outside the repo.
+# Do not commit server-specific scripts, private commands, usernames, targets,
+# or server-specific behavior into TorchFlower.
 "#
 }

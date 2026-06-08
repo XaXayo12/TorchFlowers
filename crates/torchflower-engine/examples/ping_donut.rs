@@ -1,7 +1,7 @@
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    println!("Pinging donutsmp.net...");
-    match torchflower_ping::ping("donutsmp.net", 19132).await {
+    println!("Pinging play.example.com...");
+    match torchflower_ping::ping("play.example.com", 19132).await {
         Ok(status) => {
             println!("Ping succeeded!");
             println!("MOTD: {}", status.motd);
