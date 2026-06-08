@@ -78,6 +78,7 @@ torchflower-lite-bot bench --bots 100 --duration 10m
 [server]
 host = "127.0.0.1"
 port = 19132
+protocol_version = 898 # optional override
 
 [runtime]
 log_level = "warn"
@@ -87,6 +88,35 @@ reconnect = true
 [[bots]]
 username = "Bot_1"
 mode = "afk"
+```
+
+## Protocol Version Override
+
+You can override the Bedrock protocol version used by the bot runner.
+
+### Using environment variables
+
+On Windows:
+```powershell
+$env:TORCHFLOWER_BEDROCK_PROTOCOL_VERSION = "XXX"
+torchflower-lite-bot run --config .\bots.toml
+```
+
+On Linux:
+```bash
+export TORCHFLOWER_BEDROCK_PROTOCOL_VERSION="XXX"
+torchflower-lite-bot run --config ./bots.toml
+```
+
+### Using configuration file
+
+You can set the protocol version directly in `bots.toml` under the `[server]` section:
+
+```toml
+[server]
+host = "127.0.0.1"
+port = 19132
+protocol_version = XXX
 ```
 
 ## Low-resource settings

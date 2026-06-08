@@ -202,17 +202,43 @@ impl BedrockProtocolAdapter {
     }
 
     pub async fn request_network_settings(&mut self) -> EngineResult<()> {
+        let protocol_ver = login_protocol_version();
+        let parts: Vec<&str> = self.server_address.split(':').collect();
+        let host = parts.first().copied().unwrap_or("");
+        let port = parts.get(1).copied().unwrap_or("");
+
         let packet = BedrockProto::RequestNetworkSettings(RequestNetworkSettingsPacket {
-            protocol_version: login_protocol_version(),
+            protocol_version: protocol_ver,
         });
         let version = self.version;
         let payload = codec::encode_packets(&[packet], None, None, version)
             .map_err(|err| EngineError::Bedrock(format!("encode RequestNetworkSettings: {err}")))?;
+
+        tracing::warn!(
+            "[NETWORK_SETTINGS_TX] protocol_version={} host={} port={} payload_len={}",
+            protocol_ver,
+            host,
+            port,
+            payload.len()
+        );
+
         self.transport.send_game_packet(&payload).await?;
         let response = self.transport.recv_game_packet().await?;
         let packets = codec::decode_packets(response, None, None, version)
             .map_err(|err| EngineError::Bedrock(format!("decode NetworkSettings: {err}")))?;
         println!("[DEBUG] Received packets: {:?}", packets);
+
+        let mut early_disconnect = None;
+        for packet in &packets {
+            if let BedrockProto::Disconnect(ref p) = packet {
+                early_disconnect = Some(p.clone());
+                tracing::warn!(
+                    "[NETWORK_SETTINGS_RX] early_disconnect=true reason={} hide_reason={} message={:?}",
+                    p.reason, p.hide_reason, p.message
+                );
+            }
+        }
+
         for packet in packets {
             if let BedrockProto::NetworkSettings(settings) = packet {
                 println!("Parsed NetworkSettingsPacket: {:?}", settings);
@@ -229,9 +255,21 @@ impl BedrockProtocolAdapter {
                 return Ok(());
             }
         }
-        Err(EngineError::Bedrock(
-            "server did not return NetworkSettingsPacket".to_string(),
-        ))
+
+        if let Some(p) = early_disconnect {
+            return Err(EngineError::Bedrock(format!(
+                "server did not return NetworkSettingsPacket; received early Disconnect before NetworkSettings. \
+                 protocol_version={}. Reason: {}. HideReason: {}. Message: {:?}. \
+                 This usually means unsupported protocol version, invalid network settings request, or server rejected the client before login.",
+                protocol_ver, p.reason, p.hide_reason, p.message
+            )));
+        }
+
+        Err(EngineError::Bedrock(format!(
+            "server did not return NetworkSettingsPacket; protocol_version={}. \
+             This usually means unsupported protocol version, invalid network settings request, or server rejected the client before login.",
+            protocol_ver
+        )))
     }
 
     pub async fn send_login(&mut self, session: &ProvisionedBedrockSession) -> EngineResult<()> {
@@ -3265,6 +3303,13 @@ fn login_token_for_session(session: &ProvisionedBedrockSession) -> &str {
 }
 
 fn login_protocol_version() -> i32 {
+    if let Ok(value) = std::env::var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION") {
+        if let Ok(parsed) = value.trim().parse::<i32>() {
+            if parsed > 0 {
+                return parsed;
+            }
+        }
+    }
     std::env::var("BEDROCK_PROTOCOL_VERSION")
         .ok()
         .and_then(|value| value.trim().parse::<i32>().ok())

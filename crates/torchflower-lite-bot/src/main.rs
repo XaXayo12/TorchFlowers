@@ -65,6 +65,7 @@ struct LiteConfig {
 struct ServerConfig {
     host: String,
     port: u16,
+    protocol_version: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -98,6 +99,12 @@ impl LiteConfig {
 
         if self.server.port == 0 {
             bail!("server.port cannot be 0");
+        }
+
+        if let Some(version) = self.server.protocol_version {
+            if version <= 0 {
+                bail!("server.protocol_version must be a positive integer");
+            }
         }
 
         if self.bots.is_empty() {
@@ -209,6 +216,28 @@ async fn run_config(path: PathBuf) -> Result<()> {
     info!(
         "server target: {}:{}",
         config.server.host, config.server.port
+    );
+
+    let resolved_version = if let Some(version) = config.server.protocol_version {
+        version
+    } else if let Ok(val) = std::env::var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION") {
+        let parsed = val
+            .trim()
+            .parse::<i32>()
+            .context("failed to parse TORCHFLOWER_BEDROCK_PROTOCOL_VERSION as i32")?;
+        if parsed <= 0 {
+            bail!("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION must be a positive integer");
+        }
+        parsed
+    } else {
+        // default fallback in TorchFlower
+        898
+    };
+
+    warn!("Selected Bedrock protocol version: {}", resolved_version);
+    std::env::set_var(
+        "TORCHFLOWER_BEDROCK_PROTOCOL_VERSION",
+        resolved_version.to_string(),
     );
 
     let duration_secs = config.runtime.duration_secs.unwrap_or(0);
@@ -339,7 +368,6 @@ impl ScriptedBot {
                     "[SCRIPT_BOT] executing after_previous step index={}",
                     self.current_step_index
                 );
-                tokio::time::sleep(Duration::from_millis(1000)).await;
                 self.execute_step(conn, next_step).await?;
                 self.current_step_index += 1;
             } else {
@@ -601,4 +629,112 @@ mode = "afk"
 # Do not commit server-specific scripts, private commands, usernames, targets,
 # or server-specific behavior into TorchFlower.
 "#
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_lite_config_parsing_and_validation() {
+        let toml_text = r#"
+            [server]
+            host = "127.0.0.1"
+            port = 19132
+            protocol_version = 766
+
+            [runtime]
+            log_level = "info"
+
+            [[bots]]
+            username = "Bot_Test"
+            mode = "afk"
+        "#;
+
+        let config: LiteConfig = toml::from_str(toml_text).unwrap();
+        assert_eq!(config.server.protocol_version, Some(766));
+        assert!(config.validate().is_ok());
+
+        let invalid_toml_text = r#"
+            [server]
+            host = "127.0.0.1"
+            port = 19132
+            protocol_version = -10
+
+            [runtime]
+            log_level = "info"
+
+            [[bots]]
+            username = "Bot_Test"
+            mode = "afk"
+        "#;
+
+        let config_invalid: LiteConfig = toml::from_str(invalid_toml_text).unwrap();
+        assert_eq!(config_invalid.server.protocol_version, Some(-10));
+        assert!(config_invalid.validate().is_err());
+    }
+
+    #[test]
+    fn test_protocol_override_resolution() {
+        std::env::remove_var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION");
+
+        // 1. Fallback default
+        let config = LiteConfig {
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 19132,
+                protocol_version: None,
+            },
+            runtime: RuntimeConfig {
+                log_level: None,
+                duration_secs: None,
+                reconnect: None,
+            },
+            bots: vec![],
+        };
+        let resolved = if let Some(version) = config.server.protocol_version {
+            version
+        } else if let Ok(val) = std::env::var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION") {
+            val.trim().parse::<i32>().unwrap()
+        } else {
+            898
+        };
+        assert_eq!(resolved, 898);
+
+        // 2. Env variable takes precedence over default
+        std::env::set_var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION", "975");
+        let resolved = if let Some(version) = config.server.protocol_version {
+            version
+        } else if let Ok(val) = std::env::var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION") {
+            val.trim().parse::<i32>().unwrap()
+        } else {
+            898
+        };
+        assert_eq!(resolved, 975);
+
+        // 3. Config takes precedence over env variable
+        let config_with_ver = LiteConfig {
+            server: ServerConfig {
+                host: "127.0.0.1".to_string(),
+                port: 19132,
+                protocol_version: Some(766),
+            },
+            runtime: RuntimeConfig {
+                log_level: None,
+                duration_secs: None,
+                reconnect: None,
+            },
+            bots: vec![],
+        };
+        let resolved = if let Some(version) = config_with_ver.server.protocol_version {
+            version
+        } else if let Ok(val) = std::env::var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION") {
+            val.trim().parse::<i32>().unwrap()
+        } else {
+            898
+        };
+        assert_eq!(resolved, 766);
+
+        std::env::remove_var("TORCHFLOWER_BEDROCK_PROTOCOL_VERSION");
+    }
 }
