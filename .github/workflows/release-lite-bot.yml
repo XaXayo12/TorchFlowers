@@ -1,5 +1,5 @@
 # GitHub Actions workflow to release torchflower-lite-bot
-name: Release torchflower-lite-bot
+name: Release TorchFlower Lite Bot
 
 on:
   push:

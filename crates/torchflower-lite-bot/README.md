@@ -1,6 +1,6 @@
 # TorchFlower Lite Bot
 
-`torchflower-lite-bot` is an extremely lightweight, low-resource Minecraft Bedrock AFK bot runtime. It is designed to run hundreds of concurrent AFK bots on low-resource virtual private servers (VPS) with very low memory (<1 MB RSS per bot) and CPU footprint.
+`torchflower-lite-bot` is an extremely lightweight, low-resource Minecraft Bedrock AFK bot runtime. It is optimized to run hundreds of concurrent AFK bots on low-resource virtual private servers (VPS) with very low memory (<1 MB RSS per bot) and minimal CPU footprint.
 
 ---
 

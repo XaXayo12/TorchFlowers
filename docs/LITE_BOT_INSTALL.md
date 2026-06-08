@@ -1,6 +1,6 @@
 # Installation & Setup Guide: TorchFlower Lite Bot
 
-This guide explains how to install and configure `torchflower-lite-bot` on Windows and Linux VPS.
+This guide explains how to install and configure `torchflower-lite-bot` on Windows and Linux VPS servers.
 
 ---
 

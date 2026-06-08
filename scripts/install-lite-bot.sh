@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Quick installer script for TorchFlower Lite Bot
+# Installer script for TorchFlower Lite Bot
 set -euo pipefail
 
 REPO_URL="https://github.com/Osamu-GWAD/TorchFlower"
@@ -21,6 +21,6 @@ cargo install \
   --locked \
   --force
 
-echo "Installed:"
+echo "Installed successfully:"
 command -v torchflower-lite-bot
 torchflower-lite-bot --help || true

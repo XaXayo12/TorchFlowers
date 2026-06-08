@@ -354,7 +354,7 @@ mode = "kill-loop"
         }
         Command::Bench { bots, duration } => {
             let duration_limit = parse_duration(&duration)?;
-            println!("=== TorchFlower Lite Bot Memory & CPU Benchmark ===");
+            println!("=== TorchFlower Lite Bot Memory and CPU Benchmark ===");
             println!("Target: Spawning {} concurrent bot sessions...", bots);
 
             let rt = tokio::runtime::Builder::new_current_thread()

@@ -1,12 +1,10 @@
-# TorchFlower Lite Bot Configuration
-
 [package]
 name = "torchflower-lite-bot"
 version = "0.1.0"
 edition = "2021"
 authors = ["TorchFlower Contributors"]
 license = "Apache-2.0"
-description = "Extremely lightweight Bedrock AFK bot runtime for TorchFlower."
+description = "Extremely lightweight Bedrock AFK bot runtime for TorchFlower"
 repository = "https://github.com/Osamu-GWAD/TorchFlower"
 homepage = "https://github.com/Osamu-GWAD/TorchFlower"
 readme = "README.md"
