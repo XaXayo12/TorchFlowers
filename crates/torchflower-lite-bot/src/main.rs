@@ -98,6 +98,7 @@ struct BotConfig {
     auth_mode: Option<String>,
     mode: Option<String>,
     reset_on_spawn: Option<bool>,
+    skip_steps_on_respawn: Option<usize>,
     script: Option<Vec<ScriptStep>>,
 }
 
@@ -107,6 +108,7 @@ struct ScriptStep {
     action: String,
     command: Option<String>,
     slot: Option<u32>,
+    delay_ms: Option<u64>,
 }
 
 impl LiteConfig {
@@ -321,6 +323,8 @@ struct ScriptedBot {
     script: Vec<ScriptStep>,
     current_step_index: usize,
     reset_on_spawn: bool,
+    skip_steps_on_respawn: usize,
+    spawn_count: usize,
     player_entity_id: i64,
     player_runtime_id: u64,
     player_position: (f32, f32, f32),
@@ -337,11 +341,13 @@ fn normalize_trigger(t: &str) -> String {
 }
 
 impl ScriptedBot {
-    fn new(script: Vec<ScriptStep>, reset_on_spawn: bool) -> Self {
+    fn new(script: Vec<ScriptStep>, reset_on_spawn: bool, skip_steps_on_respawn: usize) -> Self {
         Self {
             script,
             current_step_index: 0,
             reset_on_spawn,
+            skip_steps_on_respawn,
+            spawn_count: 0,
             player_entity_id: 0,
             player_runtime_id: 0,
             player_position: (0.0, 0.0, 0.0),
@@ -359,6 +365,11 @@ impl ScriptedBot {
         conn: &mut BedrockProtocolAdapter,
         step: &ScriptStep,
     ) -> Result<()> {
+        if let Some(delay) = step.delay_ms {
+            if delay > 0 {
+                tokio::time::sleep(Duration::from_millis(delay)).await;
+            }
+        }
         let action = step.action.trim().to_lowercase();
         warn!(
             "[SCRIPT_BOT] executing action={action} trigger={}",
@@ -457,12 +468,19 @@ impl InstantScript for ScriptedBot {
                     self.player_position = position;
 
                     if self.reset_on_spawn {
-                        self.current_step_index = 0;
+                        if self.spawn_count > 0 {
+                            self.current_step_index = self.skip_steps_on_respawn;
+                        } else {
+                            self.current_step_index = 0;
+                        }
                     }
+
+                    self.spawn_count = self.spawn_count.saturating_add(1);
 
                     if self.current_step_index < self.script.len() {
                         let step = &self.script[self.current_step_index];
-                        if normalize_trigger(&step.trigger) == "on_spawn" {
+                        let trigger = normalize_trigger(&step.trigger);
+                        if trigger == "on_spawn" || trigger == "after_previous" {
                             self.execute_step(conn, step).await?;
                             self.current_step_index += 1;
                             self.run_chain(conn).await?;
@@ -680,7 +698,8 @@ async fn run_single_bot(
             };
 
             let bot_session = BedrockBotSession::new(engine_db);
-            let script = ScriptedBot::new(script_steps.clone(), reset_on_spawn);
+            let skip_steps = bot.skip_steps_on_respawn.unwrap_or(0);
+            let script = ScriptedBot::new(script_steps.clone(), reset_on_spawn, skip_steps);
 
             let run_duration = if duration_secs == 0 {
                 Duration::from_secs(3600 * 24 * 365) // 1 year
@@ -1071,6 +1090,7 @@ mod tests {
                 auth_mode: None,
                 mode: None,
                 reset_on_spawn: None,
+                skip_steps_on_respawn: None,
                 script: None,
             }],
         };
