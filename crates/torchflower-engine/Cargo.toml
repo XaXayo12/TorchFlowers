@@ -66,6 +66,7 @@ console-subscriber = { version = "0.4", optional = true }
 [features]
 default = ["full-engine"]
 full-engine = ["dep:axum", "dep:sqlx", "dep:tower-http", "dep:tracing-subscriber", "dep:reqwest"]
+easy-auth  = ["dep:reqwest", "dep:sqlx"]
 console = ["console-subscriber"]
 
 [dev-dependencies]

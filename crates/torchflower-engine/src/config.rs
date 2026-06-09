@@ -113,6 +113,31 @@ impl Config {
                 allowed == "*" || allowed == host
             })
     }
+
+    /// Build a minimal in-process config for the `easy-auth` path.
+    ///
+    /// Uses a freshly generated ephemeral encryption key so callers do not
+    /// need to supply `TOKEN_ENCRYPTION_KEY_B64`. The API key and server-bind
+    /// fields are left empty — they are only required when running the engine
+    /// as a standalone HTTP service.
+    #[cfg(feature = "easy-auth")]
+    pub fn easy_auth(client_id: String) -> Result<Self, crate::error::EngineError> {
+        use rand::RngCore;
+        let mut key = [0u8; 32];
+        rand::rng().fill_bytes(&mut key);
+        Ok(Self {
+            microsoft_client_id: client_id,
+            microsoft_auth_flow: MicrosoftAuthFlow::Live,
+            token_encryption_key: key,
+            database_url: String::new(), // caller supplies the URL
+            rust_engine_bind: "127.0.0.1:0".to_string(),
+            api_key: None,
+            dev_allow_unauth_api: true,
+            cors_allowed_origins: Vec::new(),
+            allowed_server_hosts: vec!["*".to_string()],
+            dangerous_log_auth_bodies: false,
+        })
+    }
 }
 
 impl fmt::Debug for Config {

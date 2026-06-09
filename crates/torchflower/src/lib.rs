@@ -7,6 +7,9 @@ pub use torchflower_server::{create_server, Server, ServerEvent, ServerOptions, 
 
 pub use torchflower_engine::pool::{BotCommand, BotPool, PoolConfig, PoolError, ServerAddr};
 
+#[cfg(feature = "easy-auth")]
+pub use torchflower_engine::easy_auth;
+
 #[cfg(feature = "addon")]
 pub use torchflower_addon as addon;
 

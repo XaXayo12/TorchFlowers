@@ -21,6 +21,8 @@ pub mod config;
 pub mod core;
 pub mod db;
 pub mod diagnostics;
+#[cfg(feature = "easy-auth")]
+pub mod easy_auth;
 pub mod error;
 pub mod models;
 pub mod native_client;
