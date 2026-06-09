@@ -54,6 +54,7 @@ pub fn build_router(config: Config, db: Database, bind: SocketAddr) -> EngineRes
         .route("/accounts", get(list_accounts).post(import_account))
         .route("/entitlements", get(list_entitlements))
         .route("/accounts/{account_id}/provision", post(provision_account))
+        .route("/accounts/{account_id}/session", get(export_account_session))
         .route("/auth/sessions/{session_id}/poll", post(poll_auth_session))
         .route("/servers", get(list_servers).post(create_server))
         .route("/bots", get(list_bots).post(create_bot))
@@ -217,6 +218,16 @@ async fn provision_account(
         .provision(&account_id)
         .await?;
     Ok(Json(state.db.get_account(&account_id).await?))
+}
+
+async fn export_account_session(
+    State(state): State<AppState>,
+    Path(account_id): Path<String>,
+) -> EngineResult<Json<crate::auth::ProvisionedBedrockSession>> {
+    let session = EntitlementProvisioner::new(&state.config, state.db.clone())
+        .provision(&account_id)
+        .await?;
+    Ok(Json(session))
 }
 
 async fn list_servers(State(state): State<AppState>) -> EngineResult<Json<Vec<Server>>> {

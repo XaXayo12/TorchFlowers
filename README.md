@@ -10,7 +10,55 @@
 
 TorchFlower is a Rust-first Minecraft Bedrock bot engine for authenticated sessions, scalable bot orchestration, real-server validation, protocol work, and guarded automation. Unlike a standalone protocol client or protocol crate, TorchFlower packages authentication, RakNet transport, session behavior, REST control, persistence, world utilities, addon helpers, metrics, and safety defaults into one modular workspace while preserving the validated Bedrock login and gameplay pipeline.
 
-## Quick Start
+## Quickstart
+
+Get a bot authenticated and running in five steps.
+
+**Step 1 — Configure the engine**
+
+```powershell
+Copy-Item .env.example .env
+# Open .env and fill in at minimum:
+#   TORCHFLOWER_API_KEY=<any random string>
+#   TOKEN_ENCRYPTION_KEY_B64=<base64-encoded 32 random bytes>
+```
+
+Generate a suitable encryption key with:
+
+```powershell
+[Convert]::ToBase64String((1..32 | ForEach-Object { Get-Random -Maximum 256 }))
+```
+
+**Step 2 — Start the engine** *(terminal 1)*
+
+```powershell
+cargo run -p torchflower-engine
+```
+
+**Step 3 — Log in with your Microsoft account** *(terminal 2)*
+
+```powershell
+.\scripts\login-and-save.ps1 -Email "your@email.com"
+```
+
+**Step 4 — Complete the Microsoft login in your browser**
+
+The script prints a URL and a short code. Open the URL, enter the code, and
+sign in with the Microsoft account that owns Minecraft Bedrock. The script
+polls automatically and saves the session file when done.
+
+**Step 5 — Run the lite-bot**
+
+```powershell
+torchflower-lite-bot run --config bots.toml
+```
+
+> **Tip:** To re-authenticate (e.g. after token expiry) re-run Step 3.
+> The script overwrites the session file in place — no database changes needed.
+
+---
+
+## Quick Start (library API)
 
 ```rust
 use torchflower::{AuthConfig, BotBuilder, Event, ProtocolVersion};
