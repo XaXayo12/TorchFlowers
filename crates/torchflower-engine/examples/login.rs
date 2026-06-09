@@ -50,11 +50,7 @@ async fn main() -> anyhow::Result<()> {
     println!();
     println!("The account is now stored in the database and ready for use.");
     println!("You can export a session JSON for the lite-bot with:");
-    println!(
-        "  GET /api/accounts/{}/session",
-        bedrock_session.account_id
-    );
+    println!("  GET /api/accounts/{}/session", bedrock_session.account_id);
 
     Ok(())
 }
-

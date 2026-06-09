@@ -54,7 +54,10 @@ pub fn build_router(config: Config, db: Database, bind: SocketAddr) -> EngineRes
         .route("/accounts", get(list_accounts).post(import_account))
         .route("/entitlements", get(list_entitlements))
         .route("/accounts/{account_id}/provision", post(provision_account))
-        .route("/accounts/{account_id}/session", get(export_account_session))
+        .route(
+            "/accounts/{account_id}/session",
+            get(export_account_session),
+        )
         .route("/auth/sessions/{session_id}/poll", post(poll_auth_session))
         .route("/servers", get(list_servers).post(create_server))
         .route("/bots", get(list_bots).post(create_bot))
